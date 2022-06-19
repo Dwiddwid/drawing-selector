@@ -6,8 +6,74 @@ import EcosystemIcon from "./icons/IconEcosystem.vue";
 import CommunityIcon from "./icons/IconCommunity.vue";
 import SupportIcon from "./icons/IconSupport.vue";
 import { useParticipantStore } from "../stores/participants.js";
+import {ref} from "vue"
 
 const store = useParticipantStore();
+
+const myFile = ref(null)
+
+function csvToJSON(csv) {
+    var lines = csv.split("\n");
+    var result = [];
+    var headers;
+    headers = lines[0].substring(1).slice(0,-1).split('","');
+
+    for (var i = 1; i < lines.length; i++) {
+        var obj = {};
+
+        if(lines[i] == undefined || lines[i].trim() == "") {
+            continue;
+        }
+
+        var words = lines[i].substring(1).slice(0,-1).split('","');
+        for(var j = 0; j < words.length; j++) {
+            obj[headers[j].trim()] = words[j];
+        }
+
+        result.push(obj);
+    }
+    return result;
+}
+
+function selectedFile() {
+  var nameList = [];
+  console.log('selected a file');
+  console.log(myFile.value.files);
+
+  let file = myFile.value.files[0];
+  if (!file || file.type !== 'text/csv'){
+    console.log("not recognised as .csv")
+    return;
+  } 
+
+  // Credit: https://stackoverflow.com/a/754398/52160
+  let reader = new FileReader();
+  reader.readAsText(file, "UTF-8");
+  reader.onload = evt => {
+    nameList = csvToJSON(evt.target.result);
+    console.log(nameList)
+    for (var i=0; i < nameList.length; i++){
+      var test = JSON.stringify(nameList[i])
+      var exists = store.winners.findIndex(element => {
+        if (JSON.stringify(element) === test) {
+          return true;
+        }
+        else {
+          return false;
+        }
+      })
+      if (exists){
+        nameList.slice(i, 0);
+      }
+    }
+    store.candidates = nameList;
+    localStorage.setItem("candidates", JSON.stringify(nameList));
+  }
+  reader.onerror = evt => {
+    console.error(evt);
+  }
+
+}
 </script>
 
 <template>
@@ -17,7 +83,11 @@ const store = useParticipantStore();
     </template>
     <template #heading>Participants</template>
 
-    
+    <ul>
+      <li v-for="participant in store.getParticipants">
+      {{participant["First Name"]}} {{participant["Last Name"]}}
+      </li>
+    </ul>
   </AdminItem>
 
   <AdminItem>
@@ -26,7 +96,11 @@ const store = useParticipantStore();
     </template>
     <template #heading>Winners</template>
 
-    
+    <ul>
+      <li v-for="participant in store.winners">
+      {{participant["First Name"]}} {{participant["Last Name"]}}
+      </li>
+    </ul>
   </AdminItem>
 
   <AdminItem>
@@ -35,7 +109,7 @@ const store = useParticipantStore();
     </template>
     <template #heading>Manage</template>
 
-    <input type="file" @change="previewFiles" multiple />
+    <input type="file" ref="myFile" @change="selectedFile" multiple />
     <button type="button">Upload .csv</button>
     <button type="button">Reset winners</button>
   </AdminItem>

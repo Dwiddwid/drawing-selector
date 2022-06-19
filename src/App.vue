@@ -1,5 +1,10 @@
 <script setup>
 import { RouterLink, RouterView } from 'vue-router'
+import { useParticipantStore } from "./stores/participants.js";import { onMounted } from 'vue'
+
+onMounted(() => {
+  console.log(`Please check for storage.`)
+})
 </script>
 
 <template>

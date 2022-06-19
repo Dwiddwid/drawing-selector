@@ -25,7 +25,7 @@
 
 i {
   display: flex;
-  place-items: center;
+  place-items: top;
   place-content: center;
   width: 32px;
   height: 32px;

@@ -18,8 +18,8 @@ export const useParticipantStore = defineStore("participantStore", {
     getParticipants(state) {
       return [...state.candidates, ...state.winners];
     },
-    winnerSelected() {
-      return spinning === false && index != null;
+    winnerSelected(state) {
+      return state.spinning === false && state.index != null;
     },
   },
   actions: {
