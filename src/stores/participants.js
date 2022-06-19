@@ -4,12 +4,12 @@ export const useParticipantStore = defineStore("participantStore", {
   state: () => ({
     candidates: [],
     winners: [],
-    index: null,
+    index: -1,
     spinning: false,
   }),
   getters: {
     currentCandidate(state) {
-      if (false) {
+      if (state.index > -1) {
         return state.candidates[state.index];
       } else {
         return null;
@@ -19,22 +19,25 @@ export const useParticipantStore = defineStore("participantStore", {
       return [...state.candidates, ...state.winners];
     },
     winnerSelected(state) {
-      return state.spinning === false && state.index != null;
+      return state.spinning === false && state.index > -1;
     },
   },
   actions: {
-    pointToRandomCandidate: () => {
+    pointToRandomCandidate() {
       this.index = Math.floor(Math.random() * this.candidates.length);
     },
-    selectRandomCandidate(fakeSelects = 5, blurSpinDuration = 5) {
+    selectRandomCandidate(fakeSelects = 5, blurSpinDuration = 50) {
+      if(this.spinning){
+        return;
+      }
       this.spinning = true;
-      if (index) {
-        winners.push(this.candidates[index]);
-        this.candidates.splice(index, 0);
+      if (this.index > -1) {
+        this.winners.push(this.candidates[this.index]);
+        this.candidates.splice(this.index, 1);
       }
 
       for (blurSpinDuration; blurSpinDuration--; blurSpinDuration == 0) {
-        this.pointToRandomCandidate();
+        setTimeout(this.pointToRandomCandidate(), 30000);
       }
 
       for (fakeSelects; fakeSelects--; fakeSelects == 0) {
