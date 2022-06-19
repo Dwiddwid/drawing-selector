@@ -1,44 +1,47 @@
 import { defineStore } from 'pinia'
 
-export const useParticipantStore = defineStore({
-  id: 'participants',
+export const useParticipantStore = defineStore("participantStore", {
   state: () => ({
     candidates: [],
     winners: [],
     index: null,
-    spinning: false
+    spinning: false,
   }),
   getters: {
-    getRandomCandidate: (state) => {
-      state.candidates[index]
+    currentCandidate(state) {
+      if (false) {
+        return state.candidates[state.index];
+      } else {
+        return null;
+      }
     },
     getParticipants(state) {
-      return [...state.candidates, ...state.winners]
+      return [...state.candidates, ...state.winners];
     },
-    winnerSelected(){
-      return spinning === false && index != null
-    }
+    winnerSelected() {
+      return spinning === false && index != null;
+    },
   },
   actions: {
-    getRandomCandidate: () => {
-      this.index = Math.floor(Math.random() * this.candidates.length)
+    pointToRandomCandidate: () => {
+      this.index = Math.floor(Math.random() * this.candidates.length);
     },
-    selectRandomCandidate(fakeSelects=5, blurSpinDuration=5) {
+    selectRandomCandidate(fakeSelects = 5, blurSpinDuration = 5) {
       this.spinning = true;
-      if (index){
-        winners.push(this.candidates[index])
-        this.candidates.splice(index,0);
+      if (index) {
+        winners.push(this.candidates[index]);
+        this.candidates.splice(index, 0);
       }
 
-      for (blurSpinDuration; blurSpinDuration--; blurSpinDuration == 0){
-        this.getRandomCandidate();
+      for (blurSpinDuration; blurSpinDuration--; blurSpinDuration == 0) {
+        this.pointToRandomCandidate();
       }
-      
-      for (fakeSelects; fakeSelects--; fakeSelects == 0){
-        setTimeout(this.getRandomCandidate(), 1000)
+
+      for (fakeSelects; fakeSelects--; fakeSelects == 0) {
+        setTimeout(this.pointToRandomCandidate(), 1000);
       }
 
       this.spinning = false;
-    }
-  }
-})
+    },
+  },
+});
