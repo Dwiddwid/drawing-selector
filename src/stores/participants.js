@@ -26,25 +26,48 @@ export const useParticipantStore = defineStore("participantStore", {
     pointToRandomCandidate() {
       this.index = Math.floor(Math.random() * this.candidates.length);
     },
-    selectRandomCandidate(fakeSelects = 5, blurSpinDuration = 50) {
+    selectRandomCandidate() {
       if(this.spinning){
         return;
       }
-      this.spinning = true;
+      else {
+        this.spinning = true;
+      }
+      var timeBeforeSlow = Math.floor(Math.random() * 400) + 100;
+
+      
       if (this.index > -1) {
         this.winners.push(this.candidates[this.index]);
         this.candidates.splice(this.index, 1);
       }
 
-      for (blurSpinDuration; blurSpinDuration--; blurSpinDuration == 0) {
-        setTimeout(this.pointToRandomCandidate(), 30000);
-      }
+      let i = 0;
+      let j = 10
 
-      for (fakeSelects; fakeSelects--; fakeSelects == 0) {
-        setTimeout(this.pointToRandomCandidate(), 1000);
-      }
+      setTimeout(function run() {
+        this.pointToRandomCandidate();
+        i++;
+        if(i > timeBeforeSlow){
+          j = j+50;
+        }
+        if (j < 700){
+          setTimeout(run.bind(this), j);
+        }
+        else {
+          this.spinning = false;
+        }
+      }.bind(this), j);
 
-      this.spinning = false;
+      // for (blurSpinDuration; blurSpinDuration--; blurSpinDuration == 0) {
+      //   await delay(1000)
+      //   this.pointToRandomCandidate()
+      // }
+
+      // for (fakeSelects; fakeSelects--; fakeSelects == 0) {
+      //   setTimeout(this.pointToRandomCandidate(), 1000);
+      // }
+
+      //this.spinning = false;
     },
   },
 });
