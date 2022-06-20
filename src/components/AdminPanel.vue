@@ -74,45 +74,66 @@ function selectedFile() {
   }
 
 }
+
+function resetCandidates(){
+  store.candidates = [];
+  localStorage.removeItem("candidates");
+  myFile.value = null;
+}
+
+function resetWinners(){
+  store.winners = [];
+  localStorage.removeItem("winners");
+}
 </script>
 
 <template>
-  <AdminItem>
-    <template #icon>
-      <font-awesome-icon icon="fa-solid fa-people-group" />
-    </template>
-    <template #heading>Participants</template>
+  <div class="list-group admin-panel">
+    <AdminItem>
+      <template #icon>
+        <font-awesome-icon icon="fa-solid fa-people-group" />
+      </template>
+      <template #heading>Participants</template>
 
-    <ul>
-      <li v-for="participant in store.getParticipants">
-      {{participant["First Name"]}} {{participant["Last Name"]}}
-      </li>
-    </ul>
-  </AdminItem>
+      <ul>
+        <li v-for="participant in store.getParticipants">
+          {{participant["First Name"]}} {{participant["Last Name"]}}
+        </li>
+      </ul>
+    </AdminItem>
 
-  <AdminItem>
-    <template #icon>
-      <font-awesome-icon icon="fa-solid fa-gift" />
-    </template>
-    <template #heading>Winners</template>
+    <AdminItem>
+      <template #icon>
+        <font-awesome-icon icon="fa-solid fa-gift" />
+      </template>
+      <template #heading>Winners</template>
 
-    <ul>
-      <li v-for="participant in store.winners">
-      {{participant["First Name"]}} {{participant["Last Name"]}}
-      </li>
-    </ul>
-  </AdminItem>
+      <ul>
+        <li v-for="participant in store.winners">
+          {{participant["First Name"]}} {{participant["Last Name"]}}
+        </li>
+      </ul>
+    </AdminItem>
 
-  <AdminItem>
-    <template #icon>
-      <font-awesome-icon icon="fa-solid fa-book" />
-    </template>
-    <template #heading>Manage</template>
+    <AdminItem>
+      <template #icon>
+        <font-awesome-icon icon="fa-solid fa-book" />
+      </template>
+      <template #heading>Manage</template>
 
-    <input type="file" ref="myFile" @change="selectedFile" multiple />
-    <button type="button">Upload .csv</button>
-    <button type="button">Reset winners</button>
-  </AdminItem>
+      <p>Choose a .csv file of candidates to import.</p>
 
-  
+      <input type="file" ref="myFile" @change="selectedFile" />
+      <button type="button">Reset winners</button>
+      <button type="button" v-on:click="resetCandidates">Reset candidates</button>
+    </AdminItem>
+
+  </div>
+
 </template>
+
+<style>
+.admin-panel{
+  padding-left: 2rem;
+}
+</style>

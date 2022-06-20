@@ -6,7 +6,7 @@ const store = useParticipantStore();
 </script>
 
 <template>
-  <div tabindex="0" class="about">
+  <div tabindex="0" class="name-display">
     <div>
       <h1 v-if="store.index < 0">Ready to start drawing!</h1>
       <div v-else>
@@ -22,10 +22,14 @@ button {
   width: 100%;
 }
 @media (min-width: 1024px) {
-  .about {
+  .name-display {
     min-height: 100vh;
     min-width:100vw;
     display: flex;
+  }
+
+  .name-display, .name-display * {
+    justify-content: center;
     align-items: center;
   }
 }

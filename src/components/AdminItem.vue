@@ -1,5 +1,5 @@
 <template>
-  <div class="item">
+  <div class="list-group-item admin-item d-flex">
     <i>
       <slot name="icon"></slot>
     </i>
@@ -13,9 +13,11 @@
 </template>
 
 <style scoped>
-.item {
-  margin-top: 2rem;
-  display: flex;
+
+
+.list-group-item {
+  background-color: inherit;
+  color:inherit;
 }
 
 .details {
@@ -25,7 +27,7 @@
 
 i {
   display: flex;
-  place-items: top;
+  place-items: center;
   place-content: center;
   width: 32px;
   height: 32px;
