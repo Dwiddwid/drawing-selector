@@ -19,7 +19,7 @@ import Title from "../components/Title.vue";
           </nav>
         </div>
       </div>
-      <div class="col-6 d-flex align-items-center admin-col vh-100">
+      <div class="col-6 d-flex align-items-center admin-col h-100">
       <AdminPanel />
       </div>
     </div>

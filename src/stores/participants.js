@@ -37,7 +37,6 @@ export const useParticipantStore = defineStore("participantStore", {
 
       
       if (this.index > -1) {
-        this.winners.push(this.candidates[this.index]);
         this.candidates.splice(this.index, 1);
       }
 
@@ -55,6 +54,8 @@ export const useParticipantStore = defineStore("participantStore", {
         }
         else {
           this.spinning = false;
+          this.winners.push(this.candidates[this.index]);
+          localStorage.setItem("winners", JSON.stringify(this.winners));
         }
       }.bind(this), j);
 
