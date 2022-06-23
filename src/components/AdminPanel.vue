@@ -124,7 +124,7 @@ function resetWinners(){
       <p>Choose a .csv file of candidates to import.</p>
 
       <input type="file" ref="myFile" @change="selectedFile" />
-      <button type="button">Reset winners</button>
+      <button type="button" v-on:click="resetWinners">Reset winners</button>
       <button type="button" v-on:click="resetCandidates">Reset candidates</button>
     </AdminItem>
 
