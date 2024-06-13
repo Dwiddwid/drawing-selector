@@ -13,26 +13,27 @@ const store = useParticipantStore();
 const myFile = ref(null)
 
 function csvToJSON(csv) {
-    var lines = csv.split("\n");
-    var result = [];
-    var headers;
-    headers = lines[0].substring(1).slice(0,-1).split('","');
+  let test = csv.replace(/\r?\n|\r/gm, "\n");
+  var lines = test.split("\n");
+  var result = [];
+  var headers;
+  headers = lines[0].split(",");
 
-    for (var i = 1; i < lines.length; i++) {
-        var obj = {};
+  for (var i = 1; i < lines.length; i++) {
+    var obj = {};
 
-        if(lines[i] == undefined || lines[i].trim() == "") {
-            continue;
-        }
-
-        var words = lines[i].substring(1).slice(0,-1).split('","');
-        for(var j = 0; j < words.length; j++) {
-            obj[headers[j].trim()] = words[j];
-        }
-
-        result.push(obj);
+    if (lines[i] == undefined || lines[i].trim() == "") {
+      continue;
     }
-    return result;
+
+    var words = lines[i].split(",");
+    for (var j = 0; j < words.length; j++) {
+      obj[headers[j]] = words[j];
+    }
+
+    result.push(obj);
+  }
+  return result;
 }
 
 function selectedFile() {

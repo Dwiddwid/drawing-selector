@@ -17,6 +17,8 @@ const store = useParticipantStore();
               {{store.candidates[store.index]['First Name']}} {{store.currentCandidate['Last Name']}}
             </h2>
             <div class="mb-4">{{store.currentCandidate['School Grade']}}</div>
+            
+            <div class="mb-4">{{store.currentCandidate}}</div>
           </div>
         </div>
         <button type="button" class="btn btn-primary mt-4" v-if="!store.spinning" v-on:click="store.selectRandomCandidate()">GO!</button>
