@@ -1,10 +1,4 @@
 <script setup>
-import AdminItem from "./AdminItem.vue";
-import DocumentationIcon from "./icons/IconDocumentation.vue";
-import ToolingIcon from "./icons/IconTooling.vue";
-import EcosystemIcon from "./icons/IconEcosystem.vue";
-import CommunityIcon from "./icons/IconCommunity.vue";
-import SupportIcon from "./icons/IconSupport.vue";
 import { useParticipantStore } from "../stores/participants.js";
 import {ref} from "vue"
 
@@ -89,52 +83,52 @@ function resetWinners(){
 </script>
 
 <template>
-  <div class="list-group admin-panel">
-    <AdminItem>
-      <template #icon>
-        <font-awesome-icon icon="fa-solid fa-people-group" />
-      </template>
-      <template #heading>Participants</template>
+  <v-card prepend-icon="fas fa-people-group" variant="outlined">
+    <template v-slot:title>
+      Participants
+    </template>
 
-      <ul>
-        <li v-for="participant in store.getParticipants">
-          {{participant["First Name"]}} {{participant["Last Name"]}}
-        </li>
-      </ul>
-    </AdminItem>
+    <template v-slot:text>
+      <v-list lines="one" density="compact">
+        <v-list-item v-for="participant in store.getParticipants"
+          :title="participant['First Name'] + ' ' + participant['Last Name']" :value="participant"></v-list-item>
+      </v-list>
+    </template>
+  </v-card>
+  <v-card prepend-icon="fas fa-gift" variant="outlined">
+    <template v-slot:title>
+      Winners
+    </template>
 
-    <AdminItem>
-      <template #icon>
-        <font-awesome-icon icon="fa-solid fa-gift" />
-      </template>
-      <template #heading>Winners</template>
+    <template v-slot:text>
+      <v-list lines="one" density="compact">
+        <v-list-item v-for="participant in store.winners"
+          :title="participant['First Name'] + ' ' + participant['Last Name']" :value="participant"></v-list-item>
+      </v-list>
+    </template>
+  </v-card>
 
-      <ul>
-        <li v-for="participant in store.winners">
-          {{participant["First Name"]}} {{participant["Last Name"]}}
-        </li>
-      </ul>
-    </AdminItem>
+  <v-card prepend-icon="fas fa-book" variant="outlined">
+    <template v-slot:title>
+      Manage
+    </template>
 
-    <AdminItem>
-      <template #icon>
-        <font-awesome-icon icon="fa-solid fa-book" />
-      </template>
-      <template #heading>Manage</template>
-
+    <template v-slot:text>
       <p>Choose a .csv file of candidates to import.</p>
 
-      <input type="file" ref="myFile" @change="selectedFile" />
-      <button type="button" v-on:click="resetWinners">Reset winners</button>
-      <button type="button" v-on:click="resetCandidates">Reset candidates</button>
-    </AdminItem>
+      <v-file-input label="File input" ref="myFile" @change="selectedFile"></v-file-input>
+      <v-btn @click="resetCandidates">Reset candidates</v-btn>
+      <v-btn @click="resetWinners">Reset winners</v-btn>
+    </template>
+  </v-card>
 
-  </div>
+  
+
 
 </template>
 
 <style>
-.admin-panel{
+/* .admin-panel{
   padding-left: 2rem;
-}
+} */
 </style>

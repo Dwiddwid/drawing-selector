@@ -17,17 +17,15 @@ const store = useParticipantStore();
               {{store.candidates[store.index]['First Name']}} {{store.currentCandidate['Last Name']}}
             </h2>
             <div class="mb-4">{{store.currentCandidate['School Grade']}}</div>
-            
-            <div class="mb-4">{{store.currentCandidate}}</div>
           </div>
         </div>
-        <button type="button" class="btn btn-primary mt-4" v-if="!store.spinning" v-on:click="store.selectRandomCandidate()">GO!</button>
+        <v-btn v-show="!store.spinning" variant="elevated" color="primary" v-on:click="store.selectRandomCandidate()">GO!</v-btn>
       </div>
     </div>
   </div>
 </template>
 
-<style>
+<style scoped>
 button {
   width: 100%;
 }
@@ -45,5 +43,23 @@ button {
     align-items: center;
     text-align: center;
   }
+}
+
+body {
+  background-color: #d1e0e0; /* Light blue base color */
+  color: #333333; /* Dark grey text color */
+}
+
+.v-card {
+  background: #e0f2f1; /* Light teal for cards */
+}
+
+.v-btn {
+  background-color: #2980b9; /* Dark blue accent for button */
+}
+
+h1,
+h2 {
+  color: #2980b9; /* Dark blue accent for text */
 }
 </style>
