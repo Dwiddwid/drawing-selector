@@ -6,8 +6,9 @@ import Title from "../components/Title.vue";
 <template>
 
   <v-main>
-    <div class="row">
-      <div class="col-6 d-flex align-items-center vh-100">
+    <v-container fluid>
+      <v-row>
+      <div class="col-xs-12 col-md-6 d-flex align-items-center vh-100">
         <img alt="Spy" class="logo" src="@/assets/user-spy.svg" width="125" height="125" />
 
         <div class="wrapper">
@@ -18,10 +19,11 @@ import Title from "../components/Title.vue";
           </nav>
         </div>
       </div>
-      <div class="col-6 admin-col h-100">
+      <div class="col-xs-12 col-md-6 admin-col h-100">
         <AdminPanel />
       </div>
-    </div>
+    </v-row>
+    </v-container>
   </v-main>
 </template>
 
