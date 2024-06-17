@@ -9,7 +9,7 @@ defineProps({
 
 <template>
   <div class="greetings">
-    <h1 class="green">{{ msg }}</h1>
+    <h1 class="green"><v-icon icon="fas fa-person-swimming" size="x-large"></v-icon>{{ msg }}</h1>
     <h3>
       The program expects a .csv with columns "First Name", "Last Name"  and "School Grade". Winners will be tracked on this computer and will not
       be allowed to win again. If you would like to allow winners to win again you will need to click the "Reset winners" button.

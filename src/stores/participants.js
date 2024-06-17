@@ -6,6 +6,7 @@ export const useParticipantStore = defineStore("participantStore", {
     winners: [],
     index: -1,
     spinning: false,
+    useMultiDisplayMode: false,
   }),
   getters: {
     currentCandidate(state) {

@@ -2,6 +2,10 @@
 import { useParticipantStore } from "../stores/participants.js";
 
 const store = useParticipantStore();
+const bc = new BroadcastChannel('drawing_trigger');
+bc.onmessage = (event) => {
+  store.selectRandomCandidate();
+}
 
 </script>
 
@@ -25,7 +29,7 @@ const store = useParticipantStore();
           </div>
         </v-card-text>
 
-        <v-card-actions>
+        <v-card-actions v-if="!store.useMultiDisplayMode">
         
           <v-btn v-show="!store.spinning" variant="elevated" color="primary" v-on:click="store.selectRandomCandidate()">GO!</v-btn>
         </v-card-actions>
