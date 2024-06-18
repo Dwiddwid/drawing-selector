@@ -36,7 +36,7 @@ function selectWinner(){
             <v-row>
               <v-col>
                 <nav>
-                  <v-btn to="/drawing" :target="store.useMultiDisplayMode ? '_blank' : ''">Start drawing</v-btn>
+                  <v-btn to="/drawing" >Start drawing</v-btn> <!-- :target="store.useMultiDisplayMode ? '_blank' : ''" -->
                   <v-btn v-if="store.useMultiDisplayMode" @click="selectWinner">
                     Select winner
                   </v-btn>
