@@ -15,7 +15,7 @@ bc.onmessage = (event) => {
       <v-card round class="mx-auto" elevation="8">
         <v-card-title>
           <h1 v-if="store.index < 0" class="display-3 font-weight-thin">Ready to start drawing!</h1>
-          <h1 v-else class="display-3 font-weight-thin">And the Winner Is...</h1>
+          <h1 v-else-if="store.spinning" class="display-3 font-weight-thin">And the Winner Is...</h1>
         </v-card-title>
         
         <v-card-text>
@@ -45,7 +45,7 @@ button {
 }
 @media (min-width: 1024px) {
   .scaled-text * {
-    font-size: 4vw;
+    font-size: 8vw;
   }
   .name-display {
     min-height: 100vh;
