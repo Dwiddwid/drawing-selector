@@ -2,172 +2,156 @@
 
 ## Current State
 
-**Test coverage: 0%.** The project has no test framework installed, no test configuration, no test scripts, and no test files. There is no infrastructure for running tests at all.
+**48 tests across 5 test files, all passing.**
 
----
-
-## Business Logic Inventory
-
-The following files contain logic that should be tested:
-
-| File | Logic Summary | Priority |
-|------|--------------|----------|
-| `src/stores/participants.js` | Core drawing algorithm, random selection, animation loop, winner tracking, localStorage persistence | **Critical** |
-| `src/components/AdminPanel.vue` | CSV parsing (`csvToJSON`), file upload handling, winner deduplication, reset functions | **Critical** |
-| `src/App.vue` | State hydration from localStorage on mount | Medium |
-| `src/views/HomeView.vue` | Multi-display mode save, BroadcastChannel messaging | Medium |
-| `src/views/DrawingView.vue` | BroadcastChannel listener, conditional rendering | Low |
-
----
-
-## Recommended Test Framework Setup
-
-Install **Vitest** (native Vite integration) with **Vue Test Utils** and **jsdom**:
+The project uses **Vitest** with **Vue Test Utils** and **jsdom** for testing. Tests can be run via:
 
 ```
-npm install -D vitest @vue/test-utils jsdom
-```
-
-Add to `package.json` scripts:
-```json
-"test": "vitest",
-"test:coverage": "vitest --coverage"
-```
-
-Add to `vite.config.js`:
-```js
-test: {
-  environment: 'jsdom',
-}
+npm run test          # single run
+npm run test:watch    # watch mode
 ```
 
 ---
 
-## Priority 1: Participant Store (`src/stores/participants.js`)
+## Test Infrastructure
 
-This is the most critical file to test. It contains the core drawing algorithm.
-
-### Tests to write
-
-**`pointToRandomCandidate()`**
-- Sets `index` to a value within `[0, candidates.length)`
-- Works with a single candidate
-- Works with many candidates
-
-**`selectRandomCandidate()`**
-- Returns early (no-op) if `spinning` is already `true`
-- Sets `spinning = true` when invoked
-- Removes the previously-selected candidate from `candidates` (when `index > -1`)
-- Eventually sets `spinning = false` after the animation completes
-- Pushes the selected candidate into `winners`
-- Persists `winners` to `localStorage`
-- Does not crash when `candidates` is empty (edge case -- currently unhandled)
-
-**Getter: `currentCandidate`**
-- Returns `null` when `index` is `-1`
-- Returns the correct candidate when `index` is valid
-
-**Getter: `getParticipants`**
-- Returns the union of `candidates` and `winners`
-- Returns empty array when both are empty
-
-**Getter: `winnerSelected`**
-- Returns `true` only when `spinning === false && index > -1`
-- Returns `false` when spinning
-- Returns `false` when `index === -1`
-
-### Bugs discovered during analysis
-
-1. **No guard for empty candidates list.** `selectRandomCandidate()` can be called with zero candidates. `pointToRandomCandidate()` would set `index` to `NaN` (`Math.floor(Math.random() * 0)`), and `this.candidates[NaN]` would push `undefined` into `winners`.
-
-2. **Previous winner is spliced before the animation starts.** On line 41, `this.candidates.splice(this.index, 1)` removes the previous winner from candidates at the beginning of the next draw -- but the winner was already pushed into `winners[]` at line 58. This is correct behavior, but a test should verify the candidate pool shrinks by exactly 1 after each draw.
+| Component | Details |
+|-----------|---------|
+| Test runner | Vitest 4.x |
+| Component testing | @vue/test-utils 2.x |
+| DOM environment | jsdom 27.x |
+| Setup file | `src/test-setup.js` (polyfills `ResizeObserver` and `BroadcastChannel`) |
+| Config | `vite.config.js` — `test` block with jsdom env, Vuetify inlined |
 
 ---
 
-## Priority 2: CSV Parsing (`AdminPanel.vue` -- `csvToJSON`)
+## Test File Inventory
 
-This is a pure function embedded in a component. It should ideally be extracted into a utility module for easier testing.
-
-### Tests to write
-
-**Happy path**
-- Parses a standard CSV with headers `First Name,Last Name,School Grade`
-- Returns an array of objects with correct keys/values
-- Handles both `\r\n` and `\n` line endings
-
-**Edge cases**
-- Skips blank lines in the CSV
-- Handles a CSV with only a header row (returns `[]`)
-- Handles trailing newline at end of file
-- Handles fields with leading/trailing whitespace
-
-**Missing functionality to consider**
-- No handling for quoted CSV fields (e.g., `"Smith, Jr."`) -- commas inside quotes will break parsing
-- No validation that expected headers exist
-
-### Bugs discovered during analysis
-
-1. **Winner deduplication is broken.** In `selectedFile()` at line 60, `findIndex` returns `-1` when not found and `0+` when found. The check `if (exists)` treats `0` (a valid found-index meaning "found at position 0") as falsy, so it won't filter out a winner that happens to be at index 0. Additionally, line 61 uses `nameList.slice(i, 0)` which is a no-op -- it should be `nameList.splice(i, 1)` to actually remove the element.
+| Test File | Tests | Source File(s) Covered | What's Tested |
+|-----------|-------|----------------------|---------------|
+| `src/stores/__tests__/participants.spec.js` | 22 | `src/stores/participants.js` | Initial state (4), `currentCandidate` getter (2), `getParticipants` getter (4), `winnerSelected` getter (3), `pointToRandomCandidate` action (2), `selectRandomCandidate` action (7) |
+| `src/utils/__tests__/csvParser.spec.js` | 10 | `src/utils/csvParser.js` | Standard CSV parsing, `\r\n`/`\r` line endings, blank line skipping, header-only CSV, trailing newlines, whitespace preservation, single/many columns, missing fields |
+| `src/components/__tests__/App.spec.js` | 4 | `src/App.vue` | localStorage hydration of candidates, winners, and multi-display mode; empty localStorage defaults |
+| `src/views/__tests__/DrawingView.spec.js` | 7 | `src/views/DrawingView.vue` | Conditional rendering (ready/spinning/winner states), GO button visibility based on multi-display mode, `selectRandomCandidate` click handler |
+| `src/views/__tests__/HomeView.spec.js` | 5 | `src/views/HomeView.vue` | Title rendering, "Select winner" button conditional on multi-display mode, checkbox presence, "Start drawing" link |
 
 ---
 
-## Priority 3: App State Hydration (`App.vue`)
+## Refactoring Done
 
-### Tests to write
-
-- When `localStorage` contains `candidates`, `winners`, and `useMultiDisplayMode`, the store is populated correctly on mount
-- When `localStorage` is empty, the store retains its defaults
-- Handles malformed JSON in localStorage gracefully (currently does not -- `JSON.parse` will throw)
+- **`csvToJSON` extracted** from `src/components/AdminPanel.vue` into `src/utils/csvParser.js` so it can be unit tested independently. `AdminPanel.vue` now imports it from the utility module.
 
 ---
 
-## Priority 4: HomeView Multi-Display
+## What Is Covered
 
-### Tests to write
+### Participant Store (22 tests) — `src/stores/participants.js`
 
-- `saveMultiDisplay()` writes the value to localStorage and updates the store
-- `selectWinner()` posts a message on the BroadcastChannel (requires mocking `BroadcastChannel`)
+| Area | Tests | Status |
+|------|-------|--------|
+| Initial state defaults | 4 | Covered |
+| `currentCandidate` getter (null + valid index) | 2 | Covered |
+| `getParticipants` getter (empty, candidates-only, winners-only, combined) | 4 | Covered |
+| `winnerSelected` getter (spinning, no-index, valid) | 3 | Covered |
+| `pointToRandomCandidate` (range validation, single candidate) | 2 | Covered |
+| `selectRandomCandidate` spinning guard | 1 | Covered |
+| `selectRandomCandidate` sets spinning flag | 1 | Covered |
+| `selectRandomCandidate` removes previous winner from candidates | 1 | Covered |
+| `selectRandomCandidate` first draw (no removal) | 1 | Covered |
+| `selectRandomCandidate` animation completes and selects winner | 1 | Covered |
+| `selectRandomCandidate` persists winners to localStorage | 1 | Covered |
+| `selectRandomCandidate` sequential draws | 1 | Covered |
+
+### CSV Parser (10 tests) — `src/utils/csvParser.js`
+
+| Area | Tests | Status |
+|------|-------|--------|
+| Standard CSV with headers | 1 | Covered |
+| `\r\n` line endings | 1 | Covered |
+| `\r` line endings | 1 | Covered |
+| Blank line skipping | 1 | Covered |
+| Header-only CSV | 1 | Covered |
+| Trailing newline | 1 | Covered |
+| Whitespace preservation in fields | 1 | Covered |
+| Single-column CSV | 1 | Covered |
+| Many-column CSV | 1 | Covered |
+| Missing fields (undefined) | 1 | Covered |
+
+### App State Hydration (4 tests) — `src/App.vue`
+
+| Area | Tests | Status |
+|------|-------|--------|
+| Loads candidates from localStorage | 1 | Covered |
+| Loads winners from localStorage | 1 | Covered |
+| Loads useMultiDisplayMode from localStorage | 1 | Covered |
+| Keeps defaults when localStorage is empty | 1 | Covered |
+
+### DrawingView (7 tests) — `src/views/DrawingView.vue`
+
+| Area | Tests | Status |
+|------|-------|--------|
+| "Ready to start drawing!" when index < 0 | 1 | Covered |
+| "And the Winner Is..." when spinning | 1 | Covered |
+| Displays candidate name and last name | 1 | Covered |
+| Displays school grade | 1 | Covered |
+| Hides GO button in multi-display mode | 1 | Covered |
+| Shows GO button in single-display mode | 1 | Covered |
+| GO button click calls `selectRandomCandidate` | 1 | Covered |
+
+### HomeView (5 tests) — `src/views/HomeView.vue`
+
+| Area | Tests | Status |
+|------|-------|--------|
+| Renders Title component text | 1 | Covered |
+| "Select winner" button shown in multi-display mode | 1 | Covered |
+| "Select winner" button hidden in single-display mode | 1 | Covered |
+| Multi-display checkbox present | 1 | Covered |
+| "Start drawing" link present | 1 | Covered |
 
 ---
 
-## Priority 5: DrawingView
+## What Is NOT Covered (Remaining Gaps)
 
-### Tests to write
+### AdminPanel.vue — file upload and reset logic
 
-- Renders "Ready to start drawing!" when `store.index < 0`
-- Renders "And the Winner Is..." when `store.spinning` is true
-- Displays the candidate name when `store.index > -1`
-- Hides the GO button when `store.useMultiDisplayMode` is true
-- BroadcastChannel `onmessage` calls `store.selectRandomCandidate()`
+The `csvToJSON` function was extracted and tested, but the following logic inside `AdminPanel.vue` remains untested:
+
+- **`selectedFile()`** — file type validation, FileReader integration, winner deduplication filtering, localStorage persistence of candidates
+- **`resetCandidates()`** — clears store and localStorage
+- **`resetWinners()`** — clears store and localStorage
+- **Component rendering** — participant list, winner list, file input, reset buttons
+
+### App.vue — malformed localStorage
+
+- No test for corrupted/malformed JSON in localStorage (`JSON.parse` will throw and crash the app)
+
+### HomeView.vue — `saveMultiDisplay` and BroadcastChannel
+
+- **`saveMultiDisplay()`** — persists multi-display setting to localStorage and updates store
+- **`selectWinner()`** — posts "Go!" message on the BroadcastChannel
+
+### DrawingView.vue — BroadcastChannel listener
+
+- **`bc.onmessage`** — triggers `store.selectRandomCandidate()` when a message arrives
 
 ---
 
-## Summary of Bugs Found
+## Known Bugs Found During Analysis
+
+These were discovered during the initial code review and remain unfixed:
 
 | # | Location | Description | Severity |
 |---|----------|-------------|----------|
-| 1 | `participants.js:28` | No guard against empty candidates list -- results in `NaN` index and `undefined` winner | High |
-| 2 | `AdminPanel.vue:60-61` | Winner deduplication logic is broken: `findIndex` returns `0` for first match (falsy), and `slice` is used instead of `splice` | High |
-| 3 | `App.vue:12` | No try/catch around `JSON.parse` for localStorage values -- corrupted data crashes the app | Medium |
+| 1 | `participants.js:28` | No guard against empty candidates list — `Math.floor(Math.random() * 0)` produces `NaN`, pushing `undefined` into winners | High |
+| 2 | `AdminPanel.vue:52-53` | Winner deduplication is broken: `findIndex` returning `0` (first match) is treated as falsy by `if (exists)`, and `slice` is used instead of `splice` so no element is ever removed | High |
+| 3 | `App.vue:12` | No try/catch around `JSON.parse` for localStorage values — corrupted data crashes the app | Medium |
 
 ---
 
-## Suggested File Structure for Tests
+## Recommendations for Further Improvement
 
-```
-src/
-  stores/
-    __tests__/
-      participants.spec.js
-  components/
-    __tests__/
-      AdminPanel.spec.js
-  views/
-    __tests__/
-      DrawingView.spec.js
-      HomeView.spec.js
-  utils/
-    csvParser.js          # Extract csvToJSON here
-    __tests__/
-      csvParser.spec.js
-```
+1. **Fix the 3 known bugs** listed above — particularly the winner deduplication logic and the empty-candidates guard.
+2. **Add AdminPanel component tests** for file upload handling, reset functions, and rendered participant/winner lists.
+3. **Add BroadcastChannel integration tests** for HomeView's `selectWinner()` and DrawingView's `onmessage` handler.
+4. **Add error-handling tests** for malformed localStorage data in `App.vue`.
+5. **Consider adding `@vitest/coverage-v8`** to generate quantitative coverage reports.
