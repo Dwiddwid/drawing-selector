@@ -34,8 +34,8 @@ export const useParticipantStore = defineStore("participantStore", {
       else {
         this.spinning = true;
       }
-      var timeBeforeSlow = Math.floor(Math.random() * 400) + 100;
-
+      let timeBeforeSlow = Math.floor(Math.random() * 300);
+      console.log(timeBeforeSlow)
       
       if (this.index > -1) {
         this.candidates.splice(this.index, 1);
@@ -50,7 +50,7 @@ export const useParticipantStore = defineStore("participantStore", {
         if(i > timeBeforeSlow){
           j = j+50;
         }
-        if (j < 700){
+        if (j < 500){
           setTimeout(run.bind(this), j);
         }
         else {
@@ -70,6 +70,54 @@ export const useParticipantStore = defineStore("participantStore", {
       // }
 
       //this.spinning = false;
+    },
+    startSpinning() {
+      // Ensure we aren't already spinning
+      if (this.spinning) return;
+
+      this.spinning = true;
+      this.index = 0;
+
+      // Set the first period between 1 and 2 seconds
+      const firstPeriod = Math.random() * 1000 + 1000;
+
+      // Set the second period between 1 and 3 seconds
+      const secondPeriod = Math.random() * 2000 + 1000;
+
+      // Initial interval duration (in milliseconds)
+      let intervalDuration = 50;
+
+      // Function to change index
+      const change = () => {
+        this.pointToRandomCandidate()
+        console.log('Index:', this.index);
+      };
+
+      // Start changing the index rapidly
+      let rapidInterval = setInterval(change, intervalDuration);
+
+      // After the first period, start slowing down the rate of index change
+      setTimeout(() => {
+        clearInterval(rapidInterval);
+
+        const steps = 20;
+        const slowDownDuration = secondPeriod / steps;
+
+        const slowDownChange = (currentStep) => {
+          if (currentStep >= steps) {
+            this.spinning = false;
+            return;
+          }
+
+          setTimeout(() => {
+            change();
+            slowDownChange(currentStep + 1);
+          }, intervalDuration + (slowDownDuration * currentStep));
+        };
+
+        // Start the slow down process
+        slowDownChange(0);
+      }, firstPeriod);
     },
   },
 });
