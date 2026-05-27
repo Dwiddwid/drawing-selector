@@ -11,7 +11,7 @@ defineProps({
   <div class="greetings">
     <h1 class="green"><v-icon icon="fas fa-person-swimming" size="x-large"></v-icon>{{ msg }}</h1>
     <h3>
-      The program expects a .csv with columns "First Name", "Last Name"  and "School Grade". Winners will be tracked on this computer and will not
+      The program expects a .csv with "First Name" and "Last Name" columns. Any other columns (such as "School Grade" or "Bus Route") are optional and will be shown on the drawing screen. Winners will be tracked on this computer and will not
       be allowed to win again. If you would like to allow winners to win again you will need to click the "Reset winners" button.
     </h3>
     <h3>

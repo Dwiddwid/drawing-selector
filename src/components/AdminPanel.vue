@@ -1,84 +1,63 @@
 <script setup>
 import { useParticipantStore } from "../stores/participants.js";
-import {ref} from "vue"
+import { parseParticipantsCsv } from "../utils/csv.js";
+import { ref } from "vue";
 
 const store = useParticipantStore();
 
-const myFile = ref(null)
+const myFile = ref(null);
+const snackbar = ref(false);
+const snackbarColor = ref("success");
+const snackbarText = ref("");
 
-function csvToJSON(csv) {
-  let test = csv.replace(/\r?\n|\r/gm, "\n");
-  var lines = test.split("\n");
-  var result = [];
-  var headers;
-  headers = lines[0].split(",");
-
-  for (var i = 1; i < lines.length; i++) {
-    var obj = {};
-
-    if (lines[i] == undefined || lines[i].trim() == "") {
-      continue;
-    }
-
-    var words = lines[i].split(",");
-    for (var j = 0; j < words.length; j++) {
-      obj[headers[j]] = words[j];
-    }
-
-    result.push(obj);
-  }
-  return result;
+function notify(text, color) {
+  snackbarText.value = text;
+  snackbarColor.value = color;
+  snackbar.value = true;
 }
 
 function selectedFile() {
-  var nameList = [];
-  console.log('selected a file');
-  console.log(myFile.value.files);
+  const file = myFile.value?.files?.[0];
+  if (!file) return;
 
-  let file = myFile.value.files[0];
-  if (!file || file.type !== 'text/csv'){
-    console.log("not recognised as .csv")
+  const looksLikeCsv =
+    /\.csv$/i.test(file.name) || (file.type && file.type.includes("csv"));
+  if (!looksLikeCsv) {
+    notify("Please choose a .csv file.", "error");
     return;
-  } 
+  }
 
-  // Credit: https://stackoverflow.com/a/754398/52160
-  let reader = new FileReader();
+  const reader = new FileReader();
   reader.readAsText(file, "UTF-8");
-  reader.onload = evt => {
-    nameList = csvToJSON(evt.target.result);
-    console.log(nameList)
-    for (var i=0; i < nameList.length; i++){
-      var test = JSON.stringify(nameList[i])
-      var exists = store.winners.findIndex(element => {
-        if (JSON.stringify(element) === test) {
-          return true;
-        }
-        else {
-          return false;
-        }
-      })
-      if (exists){
-        nameList.slice(i, 0);
+  reader.onload = (evt) => {
+    try {
+      const participants = parseParticipantsCsv(evt.target.result);
+      if (participants.length === 0) {
+        notify("No participants found in that file.", "warning");
+        return;
       }
+      const { imported, skipped } = store.importParticipants(participants);
+      notify(
+        `Imported ${imported} participant${imported === 1 ? "" : "s"}` +
+          (skipped ? ` (skipped ${skipped} previous winner${skipped === 1 ? "" : "s"})` : ""),
+        "success"
+      );
+    } catch (err) {
+      notify(err.message || "Could not read that file.", "error");
     }
-    store.candidates = nameList;
-    localStorage.setItem("candidates", JSON.stringify(nameList));
-  }
-  reader.onerror = evt => {
-    console.error(evt);
-  }
-
+  };
+  reader.onerror = () => {
+    notify("Could not read that file.", "error");
+  };
 }
 
-function resetCandidates(){
-  store.candidates = [];
-  localStorage.removeItem("candidates");
+function resetCandidates() {
+  store.resetCandidates();
   myFile.value = null;
 }
 
-function resetWinners(){
-  store.winners = [];
-  localStorage.removeItem("winners");
+function resetWinners() {
+  store.resetWinners();
 }
 </script>
 
@@ -90,8 +69,8 @@ function resetWinners(){
 
     <template v-slot:text>
       <v-list lines="one" density="compact">
-        <v-list-item v-for="participant in store.getParticipants"
-          :title="participant['First Name'] + ' ' + participant['Last Name']" :value="participant"></v-list-item>
+        <v-list-item v-for="participant in store.getParticipants" :key="participant.id"
+          :title="participant.firstName + ' ' + participant.lastName" :value="participant"></v-list-item>
       </v-list>
     </template>
   </v-card>
@@ -102,8 +81,8 @@ function resetWinners(){
 
     <template v-slot:text>
       <v-list lines="one" density="compact">
-        <v-list-item v-for="participant in store.winners"
-          :title="participant['First Name'] + ' ' + participant['Last Name']" :value="participant"></v-list-item>
+        <v-list-item v-for="participant in store.winners" :key="participant.id"
+          :title="participant.firstName + ' ' + participant.lastName" :value="participant"></v-list-item>
       </v-list>
     </template>
   </v-card>
@@ -122,9 +101,9 @@ function resetWinners(){
     </template>
   </v-card>
 
-  
-
-
+  <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="4000">
+    {{ snackbarText }}
+  </v-snackbar>
 </template>
 
 <style>

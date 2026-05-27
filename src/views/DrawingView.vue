@@ -14,24 +14,32 @@ bc.onmessage = (event) => {
     <v-container fluid fill-height class="text-center d-flex align-center fill-height">
       <v-card round class="mx-auto" elevation="8">
         <v-card-title>
-          <h1 v-if="store.index < 0" class="display-3 font-weight-thin">Ready to start drawing!</h1>
-          <h1 v-else-if="store.spinning" class="display-3 font-weight-thin">And the Winner Is...</h1>
+          <h1 v-if="store.spinning" class="display-3 font-weight-thin">And the Winner Is...</h1>
+          <h1 v-else-if="!store.selected" class="display-3 font-weight-thin">Ready to start drawing!</h1>
         </v-card-title>
-        
+
         <v-card-text>
           <div class="scaled-text">
-            <div v-if="store.index > -1">
+            <div v-if="store.spinning && store.currentCandidate">
               <h2>
-                {{store.candidates[store.index]['First Name']}} {{store.currentCandidate['Last Name']}}
+                {{ store.currentCandidate.firstName }} {{ store.currentCandidate.lastName }}
               </h2>
-              <div class="mb-4">{{store.currentCandidate['School Grade']}}</div>
+            </div>
+            <div v-else-if="store.selected">
+              <h2>
+                {{ store.selected.firstName }} {{ store.selected.lastName }}
+              </h2>
+              <template v-for="[label, value] in Object.entries(store.selected.extras || {})" :key="label">
+                <div v-if="value" class="mb-2">{{ label }}: {{ value }}</div>
+              </template>
             </div>
           </div>
         </v-card-text>
 
         <v-card-actions v-if="!store.useMultiDisplayMode">
-        
-          <v-btn v-show="!store.spinning" variant="elevated" color="primary" v-on:click="store.selectRandomCandidate()">GO!</v-btn>
+
+          <v-btn v-show="!store.spinning" :disabled="store.candidates.length === 0" variant="elevated" color="primary" v-on:click="store.selectRandomCandidate()">GO!</v-btn>
+          <div v-if="store.candidates.length === 0 && !store.spinning" class="text-medium-emphasis mt-2">No participants loaded — import a CSV first.</div>
         </v-card-actions>
         
       </v-card>
