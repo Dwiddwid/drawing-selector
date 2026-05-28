@@ -5,18 +5,7 @@ import { onMounted } from 'vue'
 
 const store = useParticipantStore();
 onMounted(() => {
-  var storageCandidates = localStorage.getItem("candidates");
-  var storageWinners = localStorage.getItem("winners");
-  var useMultiDisplayMode = localStorage.getItem("useMultiDisplayMode");
-  if(storageCandidates != null){
-    store.candidates = JSON.parse(storageCandidates);
-  }
-  if(storageWinners != null){
-    store.winners = JSON.parse(storageWinners);
-  }
-  if(useMultiDisplayMode != null){
-    store.useMultiDisplayMode = JSON.parse(useMultiDisplayMode)
-  }
+  store.loadFromStorage();
 })
 </script>
 

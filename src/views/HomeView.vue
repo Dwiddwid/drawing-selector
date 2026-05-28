@@ -10,9 +10,7 @@ const store = useParticipantStore();
 const multiDisplay = ref(store.useMultiDisplayMode)
 
 function saveMultiDisplay(){
-  
-  localStorage.setItem("useMultiDisplayMode", JSON.stringify(multiDisplay.value));
-  store.useMultiDisplayMode = multiDisplay.value;
+  store.setMultiDisplayMode(multiDisplay.value);
 }
 
 function selectWinner(){
