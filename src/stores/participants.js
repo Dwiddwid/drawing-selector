@@ -102,7 +102,7 @@ export const useParticipantStore = defineStore("participantStore", {
       this.spinning = true;
       this.selected = null;
 
-      const timeBeforeSlow = Math.floor(Math.random() * 400) + 100;
+      const timeBeforeSlow = Math.floor(Math.random() * 300);
       let i = 0;
       let delay = 10;
 
@@ -112,7 +112,7 @@ export const useParticipantStore = defineStore("participantStore", {
         if (i > timeBeforeSlow) {
           delay += 50;
         }
-        if (delay < 700) {
+        if (delay < 500) {
           setTimeout(tick, delay);
         } else {
           this.spinning = false;
