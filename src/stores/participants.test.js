@@ -97,6 +97,76 @@ describe("participant store", () => {
     expect(localStorage.getItem("winners")).toBeNull();
   });
 
+  describe("addCandidate", () => {
+    it("appends a participant with a generated id and persists", () => {
+      const store = useParticipantStore();
+      store.addCandidate({ firstName: "Grace", lastName: "Hopper" });
+
+      expect(store.candidates).toHaveLength(1);
+      const c = store.candidates[0];
+      expect(c.firstName).toBe("Grace");
+      expect(c.lastName).toBe("Hopper");
+      expect(c.id).toBeTruthy();
+      expect(JSON.parse(localStorage.getItem("candidates"))[0].firstName).toBe("Grace");
+    });
+
+    it("assigns distinct ids even for identical names", () => {
+      const store = useParticipantStore();
+      store.addCandidate({ firstName: "Ada", lastName: "Lovelace" });
+      store.addCandidate({ firstName: "Ada", lastName: "Lovelace" });
+      expect(store.candidates[0].id).not.toBe(store.candidates[1].id);
+    });
+
+    it("defaults extras to an empty object", () => {
+      const store = useParticipantStore();
+      store.addCandidate({ firstName: "Ada", lastName: "Lovelace" });
+      expect(store.candidates[0].extras).toEqual({});
+    });
+  });
+
+  describe("removeCandidate", () => {
+    it("removes the matching candidate by id and persists", () => {
+      const store = useParticipantStore();
+      const ada = person("Ada", "Lovelace");
+      const alan = person("Alan", "Turing");
+      store.candidates = [ada, alan];
+
+      store.removeCandidate(ada.id);
+
+      expect(store.candidates).toHaveLength(1);
+      expect(store.candidates[0].firstName).toBe("Alan");
+      expect(JSON.parse(localStorage.getItem("candidates"))).toHaveLength(1);
+    });
+
+    it("is a no-op for an unknown id", () => {
+      const store = useParticipantStore();
+      store.candidates = [person("Ada", "Lovelace")];
+      store.removeCandidate("ghost-id");
+      expect(store.candidates).toHaveLength(1);
+    });
+  });
+
+  describe("importState", () => {
+    it("replaces candidates and winners, resets draw state, and persists both", () => {
+      const store = useParticipantStore();
+      store.candidates = [person("Ada", "Lovelace")];
+      store.index = 0;
+      store.selected = person("old", "winner");
+
+      const newCandidates = [person("Grace", "Hopper"), person("Linus", "Torvalds")];
+      const newWinners = [person("Alan", "Turing")];
+      store.importState({ candidates: newCandidates, winners: newWinners });
+
+      expect(store.candidates).toHaveLength(2);
+      expect(store.winners).toHaveLength(1);
+      expect(store.winners[0].firstName).toBe("Alan");
+      expect(store.index).toBe(-1);
+      expect(store.selected).toBeNull();
+      expect(JSON.parse(localStorage.getItem("candidates"))).toHaveLength(2);
+      expect(JSON.parse(localStorage.getItem("winners"))).toHaveLength(1);
+    });
+  });
+
   describe("full draw with fake timers", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
