@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 // import { faPeopleGroup, faGift, faBook } from "@fortawesome/free-solid-svg-icons";
 import { registerPlugins } from '@/plugins'
 import "bootstrap/dist/css/bootstrap.min.css";
+import './assets/wave-bg.css'
 import App from './App.vue'
 
 // Vuetify
