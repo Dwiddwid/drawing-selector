@@ -1,0 +1,143 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { downloadWinnersCsv, exportStateJson, deserializeState } from "./export.js";
+
+function person(firstName, lastName, extras = {}) {
+  return { id: `${firstName}-${lastName}`, firstName, lastName, extras };
+}
+
+// Sets up stubs for the browser download APIs that jsdom does not implement.
+// Returns helpers to read what was passed to Blob and to the anchor element.
+function setupDownloadEnv() {
+  let content = "";
+  const anchor = { href: "", download: "", click: vi.fn() };
+
+  vi.stubGlobal(
+    "Blob",
+    class {
+      constructor(parts) {
+        content = parts.join("");
+      }
+    }
+  );
+  URL.createObjectURL = vi.fn(() => "blob:mock");
+  URL.revokeObjectURL = vi.fn();
+  vi.spyOn(document, "createElement").mockReturnValue(anchor);
+
+  return { getContent: () => content, anchor };
+}
+
+describe("deserializeState", () => {
+  it("parses valid JSON into candidates and winners arrays", () => {
+    const ada = person("Ada", "Lovelace");
+    const { candidates, winners } = deserializeState(
+      JSON.stringify({ candidates: [ada], winners: [] })
+    );
+    expect(candidates).toEqual([ada]);
+    expect(winners).toEqual([]);
+  });
+
+  it("throws on invalid JSON", () => {
+    expect(() => deserializeState("not-json")).toThrow("Invalid JSON file.");
+  });
+
+  it("throws when candidates is missing", () => {
+    expect(() =>
+      deserializeState(JSON.stringify({ winners: [] }))
+    ).toThrow(/candidates/i);
+  });
+
+  it("throws when winners is not an array", () => {
+    expect(() =>
+      deserializeState(JSON.stringify({ candidates: [], winners: null }))
+    ).toThrow();
+  });
+
+  it("accepts empty arrays", () => {
+    expect(deserializeState(JSON.stringify({ candidates: [], winners: [] }))).toEqual({
+      candidates: [],
+      winners: [],
+    });
+  });
+});
+
+describe("downloadWinnersCsv", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("returns false and skips the download when winners list is empty", () => {
+    const { anchor } = setupDownloadEnv();
+    expect(downloadWinnersCsv([])).toBe(false);
+    expect(anchor.click).not.toHaveBeenCalled();
+  });
+
+  it("returns true for a non-empty winners list", () => {
+    setupDownloadEnv();
+    expect(downloadWinnersCsv([person("Ada", "Lovelace")])).toBe(true);
+  });
+
+  it("produces correct header and data rows", () => {
+    const { getContent } = setupDownloadEnv();
+    downloadWinnersCsv([person("Ada", "Lovelace", { Grade: "3", Bus: "12B" })]);
+    const [header, row] = getContent().split("\r\n");
+    expect(header).toBe('"First Name","Last Name","Grade","Bus"');
+    expect(row).toBe('"Ada","Lovelace","3","12B"');
+  });
+
+  it("escapes embedded double-quotes in values", () => {
+    const { getContent } = setupDownloadEnv();
+    downloadWinnersCsv([person('Say "Hi"', "Doe")]);
+    expect(getContent()).toContain('"Say ""Hi"""');
+  });
+
+  it("unions extra keys across all winners", () => {
+    const { getContent } = setupDownloadEnv();
+    downloadWinnersCsv([
+      person("Ada", "Lovelace", { Grade: "3" }),
+      person("Alan", "Turing", { Bus: "5A" }),
+    ]);
+    const header = getContent().split("\r\n")[0];
+    expect(header).toContain('"Grade"');
+    expect(header).toContain('"Bus"');
+  });
+
+  it("fills missing extra values with empty strings", () => {
+    const { getContent } = setupDownloadEnv();
+    downloadWinnersCsv([
+      person("Ada", "Lovelace", { Grade: "3" }),
+      person("Alan", "Turing", {}),
+    ]);
+    const rows = getContent().split("\r\n");
+    expect(rows[2]).toBe('"Alan","Turing",""');
+  });
+
+  it("sets the anchor download attribute to winners.csv", () => {
+    const { anchor } = setupDownloadEnv();
+    downloadWinnersCsv([person("Ada", "Lovelace")]);
+    expect(anchor.download).toBe("winners.csv");
+  });
+});
+
+describe("exportStateJson", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("serializes candidates and winners into valid JSON", () => {
+    const { getContent } = setupDownloadEnv();
+    const candidates = [person("Ada", "Lovelace")];
+    const winners = [person("Alan", "Turing")];
+    exportStateJson(candidates, winners);
+    const parsed = JSON.parse(getContent());
+    expect(parsed.candidates).toEqual(candidates);
+    expect(parsed.winners).toEqual(winners);
+  });
+
+  it("sets the anchor download attribute to drawing-state.json", () => {
+    const { anchor } = setupDownloadEnv();
+    exportStateJson([], []);
+    expect(anchor.download).toBe("drawing-state.json");
+  });
+});
