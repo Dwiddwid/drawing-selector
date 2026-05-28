@@ -1,117 +1,114 @@
 <script setup>
-import { useParticipantStore } from "../stores/participants.js";
-import { parseParticipantsCsv } from "../utils/csv.js";
-import { downloadWinnersCsv, exportStateJson, deserializeState } from "../utils/export.js";
-import { ref } from "vue";
+import { useParticipantStore } from '../stores/participants.js'
+import { parseParticipantsCsv } from '../utils/csv.js'
+import { downloadWinnersCsv, exportStateJson, deserializeState } from '../utils/export.js'
+import { ref } from 'vue'
 
-const store = useParticipantStore();
+const store = useParticipantStore()
 
-const myFile = ref(null);
-const stateFile = ref(null);
-const snackbar = ref(false);
-const snackbarColor = ref("success");
-const snackbarText = ref("");
+const myFile = ref(null)
+const stateFile = ref(null)
+const snackbar = ref(false)
+const snackbarColor = ref('success')
+const snackbarText = ref('')
 
-const newFirst = ref("");
-const newLast = ref("");
+const newFirst = ref('')
+const newLast = ref('')
 
 function notify(text, color) {
-  snackbarText.value = text;
-  snackbarColor.value = color;
-  snackbar.value = true;
+  snackbarText.value = text
+  snackbarColor.value = color
+  snackbar.value = true
 }
 
 function selectedFile() {
-  const file = myFile.value?.files?.[0];
-  if (!file) return;
+  const file = myFile.value?.files?.[0]
+  if (!file) return
 
-  const looksLikeCsv =
-    /\.csv$/i.test(file.name) || (file.type && file.type.includes("csv"));
+  const looksLikeCsv = /\.csv$/i.test(file.name) || (file.type && file.type.includes('csv'))
   if (!looksLikeCsv) {
-    notify("Please choose a .csv file.", "error");
-    return;
+    notify('Please choose a .csv file.', 'error')
+    return
   }
 
-  const reader = new FileReader();
-  reader.readAsText(file, "UTF-8");
+  const reader = new FileReader()
+  reader.readAsText(file, 'UTF-8')
   reader.onload = (evt) => {
     try {
-      const participants = parseParticipantsCsv(evt.target.result);
+      const participants = parseParticipantsCsv(evt.target.result)
       if (participants.length === 0) {
-        notify("No participants found in that file.", "warning");
-        return;
+        notify('No participants found in that file.', 'warning')
+        return
       }
-      const { imported, skipped } = store.importParticipants(participants);
+      const { imported, skipped } = store.importParticipants(participants)
       notify(
-        `Imported ${imported} participant${imported === 1 ? "" : "s"}` +
-          (skipped ? ` (skipped ${skipped} previous winner${skipped === 1 ? "" : "s"})` : ""),
-        "success"
-      );
+        `Imported ${imported} participant${imported === 1 ? '' : 's'}` +
+          (skipped ? ` (skipped ${skipped} previous winner${skipped === 1 ? '' : 's'})` : ''),
+        'success',
+      )
     } catch (err) {
-      notify(err.message || "Could not read that file.", "error");
+      notify(err.message || 'Could not read that file.', 'error')
     }
-  };
+  }
   reader.onerror = () => {
-    notify("Could not read that file.", "error");
-  };
+    notify('Could not read that file.', 'error')
+  }
 }
 
 function resetCandidates() {
-  store.resetCandidates();
-  myFile.value = null;
+  store.resetCandidates()
+  myFile.value = null
 }
 
 function resetWinners() {
-  store.resetWinners();
+  store.resetWinners()
 }
 
 function addParticipant() {
-  const first = newFirst.value.trim();
-  const last = newLast.value.trim();
+  const first = newFirst.value.trim()
+  const last = newLast.value.trim()
   if (!first && !last) {
-    notify("Enter at least a first or last name.", "warning");
-    return;
+    notify('Enter at least a first or last name.', 'warning')
+    return
   }
-  store.addCandidate({ firstName: first, lastName: last });
-  newFirst.value = "";
-  newLast.value = "";
+  store.addCandidate({ firstName: first, lastName: last })
+  newFirst.value = ''
+  newLast.value = ''
 }
 
 function exportWinners() {
-  const ok = downloadWinnersCsv(store.winners);
-  if (!ok) notify("No winners to export yet.", "warning");
+  const ok = downloadWinnersCsv(store.winners)
+  if (!ok) notify('No winners to export yet.', 'warning')
 }
 
 function exportState() {
-  exportStateJson(store.candidates, store.winners);
+  exportStateJson(store.candidates, store.winners)
 }
 
 function importStateFile() {
-  const file = stateFile.value?.files?.[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.readAsText(file, "UTF-8");
+  const file = stateFile.value?.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.readAsText(file, 'UTF-8')
   reader.onload = (evt) => {
     try {
-      const state = deserializeState(evt.target.result);
-      store.importState(state);
+      const state = deserializeState(evt.target.result)
+      store.importState(state)
       notify(
-        `Restored ${state.candidates.length} candidate${state.candidates.length === 1 ? "" : "s"} and ${state.winners.length} winner${state.winners.length === 1 ? "" : "s"}.`,
-        "success"
-      );
+        `Restored ${state.candidates.length} candidate${state.candidates.length === 1 ? '' : 's'} and ${state.winners.length} winner${state.winners.length === 1 ? '' : 's'}.`,
+        'success',
+      )
     } catch (err) {
-      notify(err.message || "Could not read that file.", "error");
+      notify(err.message || 'Could not read that file.', 'error')
     }
-  };
-  reader.onerror = () => notify("Could not read that file.", "error");
+  }
+  reader.onerror = () => notify('Could not read that file.', 'error')
 }
 </script>
 
 <template>
   <v-card prepend-icon="fas fa-people-group" variant="outlined">
-    <template v-slot:title>
-      Participants
-    </template>
+    <template v-slot:title> Participants </template>
 
     <template v-slot:text>
       <v-list lines="one" density="compact">
@@ -163,9 +160,7 @@ function importStateFile() {
   </v-card>
 
   <v-card prepend-icon="fas fa-gift" variant="outlined">
-    <template v-slot:title>
-      Winners
-    </template>
+    <template v-slot:title> Winners </template>
 
     <template v-slot:text>
       <v-list lines="one" density="compact">
@@ -180,9 +175,7 @@ function importStateFile() {
   </v-card>
 
   <v-card prepend-icon="fas fa-book" variant="outlined">
-    <template v-slot:title>
-      Manage
-    </template>
+    <template v-slot:title> Manage </template>
 
     <template v-slot:text>
       <p>Choose a .csv file of candidates to import.</p>
@@ -200,8 +193,8 @@ function importStateFile() {
       </v-expansion-panel-title>
       <v-expansion-panel-text>
         <p class="text-body-2 mb-3">
-          Export winners to a CSV spreadsheet, or save/load the full app state as JSON
-          so data survives clearing browser storage or moving between devices.
+          Export winners to a CSV spreadsheet, or save/load the full app state as JSON so data
+          survives clearing browser storage or moving between devices.
         </p>
         <v-btn class="mr-2 mb-2" prepend-icon="fas fa-download" @click="exportWinners">
           Download winners CSV

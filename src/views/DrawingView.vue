@@ -1,12 +1,11 @@
 <script setup>
-import { useParticipantStore } from "../stores/participants.js";
+import { useParticipantStore } from '../stores/participants.js'
 
-const store = useParticipantStore();
-const bc = new BroadcastChannel('drawing_trigger');
+const store = useParticipantStore()
+const bc = new BroadcastChannel('drawing_trigger')
 bc.onmessage = (event) => {
-  store.selectRandomCandidate();
+  store.selectRandomCandidate()
 }
-
 </script>
 
 <template>
@@ -15,21 +14,22 @@ bc.onmessage = (event) => {
       <v-card round class="mx-auto" elevation="8">
         <v-card-title>
           <h1 v-if="store.spinning" class="display-3 font-weight-thin">And the Winner Is...</h1>
-          <h1 v-else-if="!store.selected" class="display-3 font-weight-thin">Ready to start drawing!</h1>
+          <h1 v-else-if="!store.selected" class="display-3 font-weight-thin">
+            Ready to start drawing!
+          </h1>
         </v-card-title>
 
         <v-card-text>
           <div class="scaled-text">
             <div v-if="store.spinning && store.currentCandidate">
-              <h2>
-                {{ store.currentCandidate.firstName }} {{ store.currentCandidate.lastName }}
-              </h2>
+              <h2>{{ store.currentCandidate.firstName }} {{ store.currentCandidate.lastName }}</h2>
             </div>
             <div v-else-if="store.selected">
-              <h2>
-                {{ store.selected.firstName }} {{ store.selected.lastName }}
-              </h2>
-              <template v-for="[label, value] in Object.entries(store.selected.extras || {})" :key="label">
+              <h2>{{ store.selected.firstName }} {{ store.selected.lastName }}</h2>
+              <template
+                v-for="[label, value] in Object.entries(store.selected.extras || {})"
+                :key="label"
+              >
                 <div v-if="value" class="mb-2">{{ label }}: {{ value }}</div>
               </template>
             </div>
@@ -37,11 +37,21 @@ bc.onmessage = (event) => {
         </v-card-text>
 
         <v-card-actions v-if="!store.useMultiDisplayMode">
-
-          <v-btn v-show="!store.spinning" :disabled="store.candidates.length === 0" variant="elevated" color="primary" v-on:click="store.selectRandomCandidate()">GO!</v-btn>
-          <div v-if="store.candidates.length === 0 && !store.spinning" class="text-medium-emphasis mt-2">No participants loaded — import a CSV first.</div>
+          <v-btn
+            v-show="!store.spinning"
+            :disabled="store.candidates.length === 0"
+            variant="elevated"
+            color="primary"
+            v-on:click="store.selectRandomCandidate()"
+            >GO!</v-btn
+          >
+          <div
+            v-if="store.candidates.length === 0 && !store.spinning"
+            class="text-medium-emphasis mt-2"
+          >
+            No participants loaded — import a CSV first.
+          </div>
         </v-card-actions>
-        
       </v-card>
     </v-container>
   </v-main>
@@ -57,10 +67,11 @@ button {
   }
   .name-display {
     min-height: 100vh;
-    min-width:100vw;
+    min-width: 100vw;
   }
 
-  .name-display, .name-display * {
+  .name-display,
+  .name-display * {
     justify-content: center;
     align-items: center;
     text-align: center;

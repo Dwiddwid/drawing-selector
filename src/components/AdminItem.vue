@@ -13,11 +13,9 @@
 </template>
 
 <style scoped>
-
-
 .list-group-item {
   background-color: inherit;
-  color:inherit;
+  color: inherit;
 }
 
 .details {
