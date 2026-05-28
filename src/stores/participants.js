@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { participantKey } from "../utils/csv.js";
+import { participantKey, uid } from "../utils/csv.js";
 
 function readJSON(key, fallback) {
   const raw = localStorage.getItem(key);
@@ -77,6 +77,25 @@ export const useParticipantStore = defineStore("participantStore", {
     resetWinners() {
       this.winners = [];
       localStorage.removeItem("winners");
+    },
+    addCandidate({ firstName, lastName, extras = {} }) {
+      this.candidates.push({ id: uid(), firstName, lastName, extras });
+      this.persistCandidates();
+    },
+    removeCandidate(id) {
+      const idx = this.candidates.findIndex((c) => c.id === id);
+      if (idx !== -1) {
+        this.candidates.splice(idx, 1);
+        this.persistCandidates();
+      }
+    },
+    importState({ candidates, winners }) {
+      this.candidates = candidates;
+      this.winners = winners;
+      this.index = -1;
+      this.selected = null;
+      this.persistCandidates();
+      this.persistWinners();
     },
     pointToRandomCandidate() {
       this.index = this.candidates.length
