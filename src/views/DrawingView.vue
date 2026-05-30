@@ -7,14 +7,13 @@ import { createTriggerChannel } from '../utils/platform.js'
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
-// In the portable (file://) Offline Edition there is no usable BroadcastChannel,
-// so this is null and the screen simply runs its own GO! button.
+// Cross-tab trigger for multi-display mode. Uses BroadcastChannel on the web and
+// a localStorage-event fallback in the portable (file://) Offline Edition, so a
+// remote draw works in both. Still falls back to this screen's own GO! button.
 const bc = createTriggerChannel()
-if (bc) {
-  bc.onmessage = () => {
-    store.selectRandomCandidate()
-  }
-}
+bc?.onMessage(() => {
+  store.selectRandomCandidate()
+})
 
 const winnerName = computed(() =>
   store.selected ? formatWinnerName(store.selected, settings.winnerDisplay.nameFormat) : '',

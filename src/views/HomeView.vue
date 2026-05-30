@@ -4,12 +4,11 @@ import Title from '../components/Title.vue'
 import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
 import { ref } from 'vue'
-import { createTriggerChannel, isPortable } from '../utils/platform.js'
+import { createTriggerChannel } from '../utils/platform.js'
 
+// Cross-tab trigger for multi-display mode. Works on the web (BroadcastChannel)
+// and in the portable file:// build (localStorage-event fallback).
 const bc = createTriggerChannel()
-// Multi-display relies on BroadcastChannel, which can't work in the portable
-// (file://) Offline Edition — hide its controls there and run single-screen.
-const portable = isPortable()
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
@@ -45,7 +44,7 @@ function selectWinner() {
                     </v-btn>
                   </nav>
                 </v-col>
-                <v-col v-if="!portable">
+                <v-col>
                   <v-checkbox label="Use multi display mode" v-model="multiDisplay"></v-checkbox>
                   <v-btn @click="saveMultiDisplay" v-if="multiDisplay != store.useMultiDisplayMode"
                     >Save</v-btn

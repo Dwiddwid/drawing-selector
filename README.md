@@ -126,9 +126,10 @@ controls from the audience display:
   the draw remotely. Both screens must be the same origin in the same browser
   profile (uses `BroadcastChannel`).
 
-> Multi-display mode is unavailable in the portable Offline Edition (see below),
-> because `BroadcastChannel` can't connect between `file://` pages. The controls
-> are hidden there and the drawing screen runs from its own **GO!** button.
+> Multi-display works in the portable Offline Edition too. `BroadcastChannel`
+> can't connect between `file://` pages, so the portable build automatically
+> falls back to a `localStorage`-based cross-tab trigger — open both tabs from
+> the same `index.html` in the same browser profile.
 
 ## Tech stack
 
@@ -178,7 +179,8 @@ How it differs from the standard build:
 - All assets are inlined into one HTML file (via `vite-plugin-singlefile`).
 - The PWA service worker is omitted (it can't register from `file://`).
 - The router uses hash history (`/#/drawing`) so routes resolve without a server.
-- Multi-display mode is hidden (no cross-tab `BroadcastChannel` under `file://`).
+- Multi-display still works, via a `localStorage` cross-tab trigger instead of
+  `BroadcastChannel` (which can't bridge `file://` tabs).
 
 Custom theming and all other settings still work, since they persist to
 `localStorage`, which is available under `file://`.
@@ -194,7 +196,7 @@ Tests cover the CSV parser/normalizer (`src/utils/csv.js`), the export helpers
 (`src/utils/export.js`), the winner-display formatting (`src/utils/winnerDisplay.js`),
 the drawing store (`src/stores/participants.js`), the settings store
 (`src/stores/settings.js`), and the platform/portable helpers
-(`src/utils/platform.js`) — 78 tests total.
+(`src/utils/platform.js`) — 81 tests total.
 
 ## Roadmap / future enhancements
 

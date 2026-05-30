@@ -73,13 +73,16 @@ source maps are off. The output runs from `file://` (USB stick, no server).
 
 `src/utils/platform.js` centralizes the `file://` adaptations:
 - `isPortable()` — true when `location.protocol === 'file:'`.
-- `createTriggerChannel()` — returns a `BroadcastChannel`, or `null` under
-  `file://`/when unavailable. **Always use this instead of `new
-  BroadcastChannel(...)` directly** so multi-display degrades gracefully.
+- `createTriggerChannel()` — returns a unified channel
+  (`{ postMessage, onMessage, close }`) for multi-display. On the web it wraps
+  `BroadcastChannel`; under `file://` (where opaque origins make
+  `BroadcastChannel` useless) it falls back to a `localStorage` + `storage`-event
+  transport, which *does* propagate between `file://` tabs of the same file.
+  **Always use this instead of `new BroadcastChannel(...)` directly.**
 
 `src/router/index.js` uses `createWebHashHistory()` when `isPortable()` (so
-`/#/drawing` resolves without a server), else `createWebHistory()`. `HomeView`
-hides the multi-display controls when `isPortable()`.
+`/#/drawing` resolves without a server), else `createWebHistory()`. Multi-display
+works in both web and portable modes.
 
 ## Testing patterns
 
