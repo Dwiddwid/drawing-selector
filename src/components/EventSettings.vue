@@ -20,6 +20,12 @@ const nameFormats = [
   { title: 'First only', value: 'first' },
   { title: 'Last, First', value: 'last-first' },
 ]
+const animationStyles = [
+  { title: 'Classic slot machine', value: 'classic' },
+  { title: 'Spinning wheel', value: 'wheel' },
+  { title: 'Giant wheel (names scroll past)', value: 'wheel-giant' },
+  { title: 'Vertical reel', value: 'reel' },
+]
 
 // Keep the configurable field list in sync with whatever columns exist in the
 // current participant pool (candidates + winners).
@@ -234,6 +240,47 @@ function resetAll() {
         <v-btn class="mt-3" variant="text" size="small" @click="resetAll">
           Reset theme &amp; display
         </v-btn>
+      </v-expansion-panel-text>
+    </v-expansion-panel>
+
+    <!-- Animation & celebration -->
+    <v-expansion-panel>
+      <v-expansion-panel-title prepend-icon="fas fa-wand-magic-sparkles">
+        Animation &amp; celebration
+      </v-expansion-panel-title>
+      <v-expansion-panel-text>
+        <div class="pro-gate">
+          <div :class="{ 'pro-locked': !settings.isPro }">
+            <v-select
+              :model-value="settings.animationStyle"
+              @update:model-value="settings.setAnimationStyle($event)"
+              :items="animationStyles"
+              label="Reveal animation"
+              density="compact"
+            />
+            <v-switch
+              :model-value="settings.celebration.confetti"
+              @update:model-value="settings.updateCelebration({ confetti: $event })"
+              color="primary"
+              hide-details
+              label="Confetti on winner reveal"
+            />
+            <v-switch
+              :model-value="settings.celebration.sound"
+              @update:model-value="settings.updateCelebration({ sound: $event })"
+              color="primary"
+              hide-details
+              label="Celebration sound on winner reveal"
+            />
+            <p class="text-body-2 text-medium-emphasis mt-2">
+              Some browsers block sound until you've interacted with the drawing tab.
+            </p>
+          </div>
+          <div v-if="!settings.isPro" class="pro-overlay">
+            <font-awesome-icon icon="fas fa-lock" />
+            <span class="ml-2">Pro feature — upgrade to customize</span>
+          </div>
+        </div>
       </v-expansion-panel-text>
     </v-expansion-panel>
   </v-expansion-panels>

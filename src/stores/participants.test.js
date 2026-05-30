@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useParticipantStore } from './participants.js'
+import { useParticipantStore, ANIMATION_TIMING } from './participants.js'
 
 function person(firstName, lastName, extras = {}) {
   return { id: `${firstName}-${lastName}`, firstName, lastName, extras }
@@ -308,6 +308,219 @@ describe('participant store', () => {
 
       expect(store.selectRandomCandidate()).toBe(false)
       expect(store.spinning).toBe(false)
+    })
+
+    it.each(['classic', 'wheel', 'reel'])(
+      'runs to completion under the %s animation style',
+      (style) => {
+        const store = useParticipantStore()
+        store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+
+        expect(store.selectRandomCandidate(style)).toBe(true)
+        vi.runAllTimers()
+        expect(store.spinning).toBe(false)
+        expect(store.winners).toHaveLength(1)
+      },
+    )
+
+    it('falls back to classic timing for an unknown style', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      // The picker should not throw; the spin completes like classic.
+      expect(store.selectRandomCandidate('made-up')).toBe(true)
+      vi.runAllTimers()
+      expect(store.winners).toHaveLength(1)
+    })
+
+    it('committing a draw clears any prior reset-undo snapshot', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.winners = [person('Alan', 'Turing')]
+      store.resetWinners()
+      expect(store.lastResetWinners).not.toBeNull()
+
+      store.selectRandomCandidate()
+      vi.runAllTimers()
+      expect(store.lastResetWinners).toBeNull()
+    })
+  })
+
+  describe('animation timing table', () => {
+    it('exposes a timing entry for every supported style', () => {
+      for (const style of ['classic', 'wheel', 'reel']) {
+        const t = ANIMATION_TIMING[style]
+        expect(t).toBeDefined()
+        expect(t.baseDelay).toBeGreaterThan(0)
+        expect(t.maxDelay).toBeGreaterThan(t.baseDelay)
+      }
+    })
+  })
+
+  describe('visual-spin (wheel) flow', () => {
+    it('pickWinnerIndex returns a valid index from the filtered pool without mutating', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3' }),
+        person('Alan', 'Turing', { Grade: '4' }),
+        person('Grace', 'Hopper', { Grade: '3' }),
+      ]
+      store.addFilter('Grade', '3')
+
+      for (let i = 0; i < 50; i++) {
+        const idx = store.pickWinnerIndex()
+        expect(idx).toBeGreaterThanOrEqual(0)
+        expect(idx).toBeLessThan(store.candidates.length)
+        // Must point at someone who matches the filter.
+        expect(store.candidates[idx].extras.Grade).toBe('3')
+      }
+      // No mutation of running spin state.
+      expect(store.spinning).toBe(false)
+      expect(store.selected).toBeNull()
+      expect(store.index).toBe(-1)
+    })
+
+    it('pickWinnerIndex returns -1 when the filtered pool is empty', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace', { Grade: '4' })]
+      store.addFilter('Grade', '3')
+      expect(store.pickWinnerIndex()).toBe(-1)
+    })
+
+    it('beginVisualSpin gates on spinning and pool emptiness', () => {
+      const store = useParticipantStore()
+      expect(store.beginVisualSpin()).toBe(false) // empty pool
+
+      store.candidates = [person('Ada', 'Lovelace')]
+      expect(store.beginVisualSpin()).toBe(true)
+      expect(store.spinning).toBe(true)
+      // Already spinning — second call refuses.
+      expect(store.beginVisualSpin()).toBe(false)
+    })
+
+    it('beginVisualSpin clears any prior reset-undo', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.winners = [person('Alan', 'Turing')]
+      store.resetWinners()
+      expect(store.lastResetWinners).not.toBeNull()
+
+      store.beginVisualSpin()
+      expect(store.lastResetWinners).toBeNull()
+    })
+
+    it('commitAt commits the specified candidate and clears spinning', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      store.beginVisualSpin()
+
+      expect(store.commitAt(1)).toBe(true)
+      expect(store.spinning).toBe(false)
+      expect(store.selected.firstName).toBe('Alan')
+      expect(store.candidates).toHaveLength(1)
+      expect(store.candidates[0].firstName).toBe('Ada')
+    })
+
+    it('commitAt with an out-of-range index bails cleanly and still clears spinning', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.beginVisualSpin()
+
+      expect(store.commitAt(-1)).toBe(false)
+      expect(store.spinning).toBe(false)
+      expect(store.selected).toBeNull()
+      expect(store.candidates).toHaveLength(1)
+    })
+
+    it('end-to-end wheel flow: pick → begin → commit produces exactly one winner', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace'),
+        person('Alan', 'Turing'),
+        person('Grace', 'Hopper'),
+      ]
+      expect(store.beginVisualSpin()).toBe(true)
+      const idx = store.pickWinnerIndex()
+      expect(idx).toBeGreaterThanOrEqual(0)
+      const expectedWinner = store.candidates[idx]
+      // No timers needed — the visual layer drives timing in real code.
+      expect(store.commitAt(idx)).toBe(true)
+      expect(store.winners).toHaveLength(1)
+      expect(store.winners[0].firstName).toBe(expectedWinner.firstName)
+      expect(store.candidates).toHaveLength(2)
+    })
+  })
+
+  describe('reset / undo', () => {
+    it('undoResetCandidates restores candidates and filters and re-persists', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3' }),
+        person('Alan', 'Turing', { Grade: '4' }),
+      ]
+      store.addFilter('Grade', '3')
+      store.persistCandidates()
+
+      store.resetCandidates()
+      expect(store.candidates).toHaveLength(0)
+      expect(store.filters).toHaveLength(0)
+      expect(localStorage.getItem('candidates')).toBeNull()
+
+      expect(store.undoResetCandidates()).toBe(true)
+      expect(store.candidates).toHaveLength(2)
+      expect(store.filters).toEqual([{ key: 'Grade', value: '3' }])
+      expect(JSON.parse(localStorage.getItem('candidates'))).toHaveLength(2)
+      // Undo is single-use.
+      expect(store.lastResetCandidates).toBeNull()
+      expect(store.undoResetCandidates()).toBe(false)
+    })
+
+    it('undoResetWinners restores winners and re-persists', () => {
+      const store = useParticipantStore()
+      store.winners = [person('Ada', 'Lovelace')]
+      store.persistWinners()
+
+      store.resetWinners()
+      expect(store.winners).toHaveLength(0)
+
+      expect(store.undoResetWinners()).toBe(true)
+      expect(store.winners).toHaveLength(1)
+      expect(JSON.parse(localStorage.getItem('winners'))).toHaveLength(1)
+    })
+
+    it('snapshot is a deep copy — mutating winners after reset does not bleed into the snapshot', () => {
+      const store = useParticipantStore()
+      store.winners = [person('Ada', 'Lovelace', { Grade: '3' })]
+      store.resetWinners()
+      // simulate other code mutating the now-empty winners array
+      store.winners.push(person('Mallory', 'Mutant'))
+
+      store.undoResetWinners()
+      expect(store.winners).toHaveLength(1)
+      expect(store.winners[0].firstName).toBe('Ada')
+    })
+
+    it('importParticipants clears any pending candidates-undo', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.resetCandidates()
+      expect(store.lastResetCandidates).not.toBeNull()
+
+      store.importParticipants([person('Grace', 'Hopper')])
+      expect(store.lastResetCandidates).toBeNull()
+    })
+
+    it('importState clears both undo snapshots', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.winners = [person('Alan', 'Turing')]
+      store.resetCandidates()
+      store.resetWinners()
+      expect(store.lastResetCandidates).not.toBeNull()
+      expect(store.lastResetWinners).not.toBeNull()
+
+      store.importState({ candidates: [person('Grace', 'Hopper')], winners: [] })
+      expect(store.lastResetCandidates).toBeNull()
+      expect(store.lastResetWinners).toBeNull()
     })
   })
 })
