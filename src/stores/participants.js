@@ -19,6 +19,7 @@ export const useParticipantStore = defineStore('participantStore', {
     selected: null,
     spinning: false,
     useMultiDisplayMode: false,
+    filters: [],
   }),
   getters: {
     currentCandidate(state) {
@@ -32,6 +33,12 @@ export const useParticipantStore = defineStore('participantStore', {
     },
     winnerSelected(state) {
       return state.spinning === false && state.selected !== null
+    },
+    filteredCandidates(state) {
+      if (state.filters.length === 0) return state.candidates
+      return state.candidates.filter((c) =>
+        state.filters.every((f) => c.extras?.[f.key] === f.value),
+      )
     },
   },
   actions: {
@@ -72,6 +79,7 @@ export const useParticipantStore = defineStore('participantStore', {
       this.candidates = []
       this.index = -1
       this.selected = null
+      this.filters = []
       localStorage.removeItem('candidates')
     },
     resetWinners() {
@@ -89,6 +97,28 @@ export const useParticipantStore = defineStore('participantStore', {
         this.persistCandidates()
       }
     },
+    updateCandidate(id, patch) {
+      const c = this.candidates.find((c) => c.id === id)
+      if (!c) return
+      if (patch.firstName !== undefined) c.firstName = patch.firstName
+      if (patch.lastName !== undefined) c.lastName = patch.lastName
+      this.persistCandidates()
+    },
+    addFilter(key, value) {
+      const existing = this.filters.findIndex((f) => f.key === key)
+      if (existing !== -1) {
+        this.filters[existing].value = value
+      } else {
+        this.filters.push({ key, value })
+      }
+    },
+    removeFilter(key) {
+      const idx = this.filters.findIndex((f) => f.key === key)
+      if (idx !== -1) this.filters.splice(idx, 1)
+    },
+    clearFilters() {
+      this.filters = []
+    },
     importState({ candidates, winners }) {
       this.candidates = candidates
       this.winners = winners
@@ -98,7 +128,10 @@ export const useParticipantStore = defineStore('participantStore', {
       this.persistWinners()
     },
     pointToRandomCandidate() {
-      this.index = this.candidates.length ? Math.floor(Math.random() * this.candidates.length) : -1
+      const pool = this.filteredCandidates
+      if (pool.length === 0) { this.index = -1; return }
+      const pick = pool[Math.floor(Math.random() * pool.length)]
+      this.index = this.candidates.findIndex((c) => c.id === pick.id)
     },
     // Move the currently pointed-at candidate into winners (as a copy) and
     // remove them from the pool so they can never be drawn again.
@@ -114,7 +147,7 @@ export const useParticipantStore = defineStore('participantStore', {
     },
     selectRandomCandidate() {
       if (this.spinning) return false
-      if (this.candidates.length === 0) return false
+      if (this.filteredCandidates.length === 0) return false
 
       this.spinning = true
       this.selected = null
