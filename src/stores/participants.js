@@ -108,8 +108,12 @@ export const useParticipantStore = defineStore('participantStore', {
     },
     resetWinners() {
       this.lastResetWinners = this.winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } }))
+      // Add winners back to candidates
+      this.candidates.push(...this.lastResetWinners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } })))
       this.winners = []
-      localStorage.removeItem('winners')
+      this.selected = null
+      this.persistCandidates()
+      this.persistWinners()
     },
     undoResetCandidates() {
       if (!this.lastResetCandidates) return false
@@ -121,8 +125,12 @@ export const useParticipantStore = defineStore('participantStore', {
     },
     undoResetWinners() {
       if (!this.lastResetWinners) return false
+      // Remove the winners from candidates (by id)
+      const winnerIds = new Set(this.lastResetWinners.map((w) => w.id))
+      this.candidates = this.candidates.filter((c) => !winnerIds.has(c.id))
       this.winners = this.lastResetWinners
       this.lastResetWinners = null
+      this.persistCandidates()
       this.persistWinners()
       return true
     },

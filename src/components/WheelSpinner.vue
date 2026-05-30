@@ -63,6 +63,11 @@ function deviceScale(logicalPx) {
   return Math.max(1, Math.min(dpr, MAX_DEVICE_PX / logicalPx))
 }
 
+// Gap in CSS pixels between the top of the viewport and the wheel's rim.
+// Setting r = cy - GIANT_TOP_GAP puts the topmost point of the wheel exactly
+// this far below the top edge, so the rim is always visible.
+const GIANT_TOP_GAP = 20
+
 // Canvas + wheel geometry in CSS pixels.
 //   cw/ch — canvas (visible) size      cx/cy — wheel center      r — wheel radius
 const geom = computed(() => {
@@ -70,10 +75,14 @@ const geom = computed(() => {
     const cw = vw.value
     const ch = vh.value
     const cx = cw / 2
-    // Push the center below the bottom edge so the spokes' convergence point
-    // stays offscreen, then size the radius to cover the farthest (top) corners.
-    const cy = ch + ch * 0.16
-    const r = Math.hypot(cw / 2, cy) * 1.02
+    // Push the center 16 % of the viewport height below the bottom edge so
+    // the spokes' convergence point stays offscreen. The radius is then set so
+    // the topmost point of the rim lands exactly GIANT_TOP_GAP px below the
+    // top of the viewport (cy - r = GIANT_TOP_GAP).  This is always large
+    // enough to cover the bottom corners: r ≈ 1.16·ch which is well above the
+    // bottom-corner distance of √((cw/2)² + (0.16·ch)²).
+    const cy = ch + ch * 1 //0.16 might not be enough
+    const r = cy - GIANT_TOP_GAP
     return { cw, ch, cx, cy, r }
   }
   const s = props.size

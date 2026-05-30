@@ -85,10 +85,10 @@ describe('participant store', () => {
     store.resetCandidates()
     store.resetWinners()
 
-    expect(store.candidates).toHaveLength(0)
+    expect(store.candidates).toHaveLength(1) // Alan restored from winners
     expect(store.winners).toHaveLength(0)
-    expect(localStorage.getItem('candidates')).toBeNull()
-    expect(localStorage.getItem('winners')).toBeNull()
+    expect(localStorage.getItem('candidates')).toBeTruthy() // Alan persisted
+    expect(localStorage.getItem('winners')).toBeTruthy() // empty winners array persisted
   })
 
   describe('addCandidate', () => {
