@@ -1,16 +1,21 @@
 import 'vuetify/styles'
 import { createVuetify } from 'vuetify'
 import { aliases, fa } from 'vuetify/iconsets/fa-svg'
-const oceanTheme = {
-  primary: '#1e3d59', // Deep Blue
-  secondary: '#1c8c9a', // Sea Blue
-  accent: '#FF6F61', // Coral
-  error: '#b71c1c', // Standard Error Red
-  info: '#1e88e5', // Light Blue
-  success: '#43a047', // Green
-  warning: '#fdd835', // Yellow
-  background: '#e0f7fa', // Light Aqua
-  surface: '#ffffff', // White for cards
+// Live, user-customizable theme. Colors here are overwritten at runtime from the
+// settings store (see App.vue); these values are the defaults / fallback.
+const customTheme = {
+  dark: false,
+  colors: {
+    primary: '#1e3d59', // Deep Blue
+    secondary: '#1c8c9a', // Sea Blue
+    accent: '#ff6f61', // Coral
+    error: '#b71c1c', // Standard Error Red
+    info: '#1e88e5', // Light Blue
+    success: '#43a047', // Green
+    warning: '#fdd835', // Yellow
+    background: '#e0f7fa', // Light Aqua
+    surface: '#ffffff', // White for cards
+  },
 }
 const myCustomLightTheme = {
   dark: false,
@@ -52,9 +57,10 @@ const myCustomLightTheme = {
 
 export default createVuetify({
   theme: {
+    defaultTheme: 'customTheme',
     themes: {
       myCustomLightTheme,
-      oceanTheme,
+      customTheme,
     },
   },
   icons: {

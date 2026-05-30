@@ -7,6 +7,7 @@ Developer context for AI-assisted work on this project.
 ```sh
 npm run dev          # Vite dev server with hot reload
 npm run build        # production build (emits sw.js + manifest.webmanifest)
+npm run build:portable # single-file Offline Edition → dist-portable/index.html
 npm test             # Vitest run-once
 npm run test:watch   # Vitest watch mode
 ```
@@ -62,6 +63,26 @@ Three exported functions; all pure except for the `triggerDownload` side-effect:
 Configured in `vite.config.js` via `vite-plugin-pwa` (`generateSW` mode,
 `registerType: 'autoUpdate'`). Icons live in `public/pwa-192.png` and
 `public/pwa-512.png`. The service worker precaches all built assets.
+
+### Portable build (Offline Edition)
+
+`PORTABLE=true` (set by `npm run build:portable`) switches `vite.config.js` to a
+single-file build: `vite-plugin-singlefile` inlines everything into
+`dist-portable/index.html`, the PWA plugin is dropped, `base` becomes `./`, and
+source maps are off. The output runs from `file://` (USB stick, no server).
+
+`src/utils/platform.js` centralizes the `file://` adaptations:
+- `isPortable()` — true when `location.protocol === 'file:'`.
+- `createTriggerChannel()` — returns a unified channel
+  (`{ postMessage, onMessage, close }`) for multi-display. On the web it wraps
+  `BroadcastChannel`; under `file://` (where opaque origins make
+  `BroadcastChannel` useless) it falls back to a `localStorage` + `storage`-event
+  transport, which *does* propagate between `file://` tabs of the same file.
+  **Always use this instead of `new BroadcastChannel(...)` directly.**
+
+`src/router/index.js` uses `createWebHashHistory()` when `isPortable()` (so
+`/#/drawing` resolves without a server), else `createWebHistory()`. Multi-display
+works in both web and portable modes.
 
 ## Testing patterns
 

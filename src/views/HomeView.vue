@@ -2,11 +2,16 @@
 import AdminPanel from '../components/AdminPanel.vue'
 import Title from '../components/Title.vue'
 import { useParticipantStore } from '../stores/participants.js'
+import { useSettingsStore } from '../stores/settings.js'
 import { ref } from 'vue'
+import { createTriggerChannel } from '../utils/platform.js'
 
-const bc = new BroadcastChannel('drawing_trigger')
+// Cross-tab trigger for multi-display mode. Works on the web (BroadcastChannel)
+// and in the portable file:// build (localStorage-event fallback).
+const bc = createTriggerChannel()
 
 const store = useParticipantStore()
+const settings = useSettingsStore()
 const multiDisplay = ref(store.useMultiDisplayMode)
 
 function saveMultiDisplay() {
@@ -14,7 +19,7 @@ function saveMultiDisplay() {
 }
 
 function selectWinner() {
-  bc.postMessage('Go!')
+  bc?.postMessage('Go!')
 }
 </script>
 
@@ -27,7 +32,7 @@ function selectWinner() {
 
           <v-row>
             <v-col>
-              <Title msg="It's drawing time!" />
+              <Title :msg="settings.theme.eventTitle" />
 
               <v-row>
                 <v-col>

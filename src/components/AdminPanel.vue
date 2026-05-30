@@ -1,10 +1,13 @@
 <script setup>
 import { useParticipantStore } from '../stores/participants.js'
+import { useSettingsStore, mergeSettings } from '../stores/settings.js'
 import { parseParticipantsCsv } from '../utils/csv.js'
 import { downloadWinnersCsv, exportStateJson, deserializeState } from '../utils/export.js'
 import { ref, computed } from 'vue'
+import EventSettings from './EventSettings.vue'
 
 const store = useParticipantStore()
+const settings = useSettingsStore()
 
 const myFile = ref(null)
 const stateFile = ref(null)
@@ -139,7 +142,11 @@ function exportWinners() {
 }
 
 function exportState() {
-  exportStateJson(store.candidates, store.winners)
+  exportStateJson(store.candidates, store.winners, {
+    isPro: settings.isPro,
+    theme: settings.theme,
+    winnerDisplay: settings.winnerDisplay,
+  })
 }
 
 function importStateFile() {
@@ -151,6 +158,12 @@ function importStateFile() {
     try {
       const state = deserializeState(evt.target.result)
       store.importState(state)
+      if (state.settings) {
+        const merged = mergeSettings(state.settings)
+        settings.setIsPro(merged.isPro)
+        settings.updateTheme(merged.theme)
+        settings.updateWinnerDisplay(merged.winnerDisplay)
+      }
       notify(
         `Restored ${state.candidates.length} candidate${state.candidates.length === 1 ? '' : 's'} and ${state.winners.length} winner${state.winners.length === 1 ? '' : 's'}.`,
         'success',
@@ -389,6 +402,8 @@ function importStateFile() {
       </v-expansion-panel-text>
     </v-expansion-panel>
   </v-expansion-panels>
+
+  <EventSettings @notify="notify" />
 
   <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="4000">
     {{ snackbarText }}

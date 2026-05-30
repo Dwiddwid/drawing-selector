@@ -25,8 +25,11 @@ export function downloadWinnersCsv(winners) {
   return true
 }
 
-export function exportStateJson(candidates, winners) {
-  const payload = JSON.stringify({ candidates, winners }, null, 2)
+// `settings` is optional so older backups (without it) still round-trip.
+export function exportStateJson(candidates, winners, settings) {
+  const state = { candidates, winners }
+  if (settings) state.settings = settings
+  const payload = JSON.stringify(state, null, 2)
   triggerDownload(payload, 'drawing-state.json', 'application/json')
 }
 
@@ -40,5 +43,10 @@ export function deserializeState(json) {
   if (!Array.isArray(parsed.candidates) || !Array.isArray(parsed.winners)) {
     throw new Error('JSON must have "candidates" and "winners" arrays.')
   }
-  return { candidates: parsed.candidates, winners: parsed.winners }
+  const result = { candidates: parsed.candidates, winners: parsed.winners }
+  // Only surface settings when present and shaped like an object.
+  if (parsed.settings && typeof parsed.settings === 'object') {
+    result.settings = parsed.settings
+  }
+  return result
 }
