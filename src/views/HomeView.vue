@@ -4,8 +4,12 @@ import Title from '../components/Title.vue'
 import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
 import { ref } from 'vue'
+import { createTriggerChannel, isPortable } from '../utils/platform.js'
 
-const bc = new BroadcastChannel('drawing_trigger')
+const bc = createTriggerChannel()
+// Multi-display relies on BroadcastChannel, which can't work in the portable
+// (file://) Offline Edition — hide its controls there and run single-screen.
+const portable = isPortable()
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
@@ -16,7 +20,7 @@ function saveMultiDisplay() {
 }
 
 function selectWinner() {
-  bc.postMessage('Go!')
+  bc?.postMessage('Go!')
 }
 </script>
 
@@ -41,7 +45,7 @@ function selectWinner() {
                     </v-btn>
                   </nav>
                 </v-col>
-                <v-col>
+                <v-col v-if="!portable">
                   <v-checkbox label="Use multi display mode" v-model="multiDisplay"></v-checkbox>
                   <v-btn @click="saveMultiDisplay" v-if="multiDisplay != store.useMultiDisplayMode"
                     >Save</v-btn

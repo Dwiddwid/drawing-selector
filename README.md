@@ -51,6 +51,10 @@ release.
   (`First Last`, `First` only, or `Last, First`), pick which detail fields are
   shown, rename their labels, reorder them, and toggle whether labels are shown
   at all.
+- **Portable "Offline Edition"** — build the entire app as a single
+  self-contained `index.html` you can copy to a USB stick and open directly
+  (`file://`) on a computer with no network or installation. See
+  [Portable build](#portable-build-offline-edition) below.
 
 All Pro settings are persisted to `localStorage` and included in the JSON
 backup/restore so they travel with your event.
@@ -122,6 +126,10 @@ controls from the audience display:
   the draw remotely. Both screens must be the same origin in the same browser
   profile (uses `BroadcastChannel`).
 
+> Multi-display mode is unavailable in the portable Offline Edition (see below),
+> because `BroadcastChannel` can't connect between `file://` pages. The controls
+> are hidden there and the drawing screen runs from its own **GO!** button.
+
 ## Tech stack
 
 - [Vue 3](https://vuejs.org/) + [Vite](https://vitejs.dev/)
@@ -154,6 +162,27 @@ npm run build
 The build emits `dist/sw.js` (service worker) and `dist/manifest.webmanifest`
 alongside the usual JS/CSS bundles.
 
+### Portable build (Offline Edition)
+
+```sh
+npm run build:portable
+```
+
+This produces a **single self-contained file** at `dist-portable/index.html`
+with all JavaScript, CSS, and styles inlined. Copy it to a USB stick (or email
+it) and open it directly in a browser — no web server, no install, no network.
+Ideal for no-network venues like church camps.
+
+How it differs from the standard build:
+
+- All assets are inlined into one HTML file (via `vite-plugin-singlefile`).
+- The PWA service worker is omitted (it can't register from `file://`).
+- The router uses hash history (`/#/drawing`) so routes resolve without a server.
+- Multi-display mode is hidden (no cross-tab `BroadcastChannel` under `file://`).
+
+Custom theming and all other settings still work, since they persist to
+`localStorage`, which is available under `file://`.
+
 ### Run tests
 
 ```sh
@@ -163,14 +192,12 @@ npm run test:watch  # watch mode
 
 Tests cover the CSV parser/normalizer (`src/utils/csv.js`), the export helpers
 (`src/utils/export.js`), the winner-display formatting (`src/utils/winnerDisplay.js`),
-the drawing store (`src/stores/participants.js`), and the settings store
-(`src/stores/settings.js`) — 73 tests total.
+the drawing store (`src/stores/participants.js`), the settings store
+(`src/stores/settings.js`), and the platform/portable helpers
+(`src/utils/platform.js`) — 78 tests total.
 
 ## Roadmap / future enhancements
 
-- **Portable single-file "Offline Edition" (Pro).** A build that inlines all
-  JS/CSS/assets into one `index.html` that runs from a USB stick via `file://`
-  — for no-network venues like church camps.
 - **More animation styles (Pro).** Alternate reveals such as a spinning wheel or
   slot-machine reel, selectable per event.
 - **Celebration effects (Pro).** Confetti and sound on the winner reveal.

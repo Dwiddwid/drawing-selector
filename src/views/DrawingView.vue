@@ -3,12 +3,17 @@ import { computed } from 'vue'
 import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
 import { formatWinnerName, visibleWinnerFields } from '../utils/winnerDisplay.js'
+import { createTriggerChannel } from '../utils/platform.js'
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
-const bc = new BroadcastChannel('drawing_trigger')
-bc.onmessage = () => {
-  store.selectRandomCandidate()
+// In the portable (file://) Offline Edition there is no usable BroadcastChannel,
+// so this is null and the screen simply runs its own GO! button.
+const bc = createTriggerChannel()
+if (bc) {
+  bc.onmessage = () => {
+    store.selectRandomCandidate()
+  }
 }
 
 const winnerName = computed(() =>
