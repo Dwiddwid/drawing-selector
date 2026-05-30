@@ -1,17 +1,38 @@
 <script setup>
+import { computed } from 'vue'
 import { useParticipantStore } from '../stores/participants.js'
+import { useSettingsStore } from '../stores/settings.js'
+import { formatWinnerName, visibleWinnerFields } from '../utils/winnerDisplay.js'
 
 const store = useParticipantStore()
+const settings = useSettingsStore()
 const bc = new BroadcastChannel('drawing_trigger')
-bc.onmessage = (event) => {
+bc.onmessage = () => {
   store.selectRandomCandidate()
 }
+
+const winnerName = computed(() =>
+  store.selected ? formatWinnerName(store.selected, settings.winnerDisplay.nameFormat) : '',
+)
+const detailRows = computed(() =>
+  store.selected ? visibleWinnerFields(store.selected, settings.winnerDisplay) : [],
+)
 </script>
 
 <template>
   <v-main>
-    <v-container fluid fill-height class="text-center d-flex align-center fill-height">
-      <v-card round class="mx-auto" elevation="8">
+    <v-container fluid fill-height class="text-center d-flex flex-column align-center justify-center fill-height">
+      <img
+        v-if="settings.theme.logo"
+        :src="settings.theme.logo"
+        alt="Event logo"
+        class="event-logo mb-4"
+      />
+      <h1 v-if="settings.theme.eventTitle" class="event-title mb-4">
+        {{ settings.theme.eventTitle }}
+      </h1>
+
+      <v-card round class="mx-auto winner-card" elevation="8">
         <v-card-title>
           <h1 v-if="store.spinning" class="display-3 font-weight-thin">And the Winner Is...</h1>
           <h1 v-else-if="!store.selected" class="display-3 font-weight-thin">
@@ -25,13 +46,11 @@ bc.onmessage = (event) => {
               <h2>{{ store.currentCandidate.firstName }} {{ store.currentCandidate.lastName }}</h2>
             </div>
             <div v-else-if="store.selected">
-              <h2>{{ store.selected.firstName }} {{ store.selected.lastName }}</h2>
-              <template
-                v-for="[label, value] in Object.entries(store.selected.extras || {})"
-                :key="label"
-              >
-                <div v-if="value" class="mb-2">{{ label }}: {{ value }}</div>
-              </template>
+              <h2>{{ winnerName }}</h2>
+              <div v-for="row in detailRows" :key="row.key" class="mb-2">
+                <template v-if="settings.winnerDisplay.showLabels">{{ row.label }}: </template
+                >{{ row.value }}
+              </div>
             </div>
           </div>
         </v-card-text>
@@ -61,6 +80,14 @@ bc.onmessage = (event) => {
 button {
   width: 100%;
 }
+.event-logo {
+  max-height: 20vh;
+  max-width: 80vw;
+  object-fit: contain;
+}
+.event-title {
+  color: rgb(var(--v-theme-primary));
+}
 @media (min-width: 1024px) {
   .scaled-text * {
     font-size: 8vw;
@@ -78,16 +105,16 @@ button {
   }
 }
 
-.v-card {
-  background: #e0f2f1; /* Light teal for cards */
+.winner-card {
+  background: rgb(var(--v-theme-surface));
 }
 
-.v-btn {
-  background-color: #2980b9; /* Dark blue accent for button */
+.winner-card .v-btn {
+  background-color: rgb(var(--v-theme-primary));
 }
 
-h1,
-h2 {
-  color: #2980b9; /* Dark blue accent for text */
+.winner-card h1,
+.winner-card h2 {
+  color: rgb(var(--v-theme-primary));
 }
 </style>

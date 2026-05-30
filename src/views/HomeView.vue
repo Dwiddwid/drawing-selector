@@ -2,11 +2,13 @@
 import AdminPanel from '../components/AdminPanel.vue'
 import Title from '../components/Title.vue'
 import { useParticipantStore } from '../stores/participants.js'
+import { useSettingsStore } from '../stores/settings.js'
 import { ref } from 'vue'
 
 const bc = new BroadcastChannel('drawing_trigger')
 
 const store = useParticipantStore()
+const settings = useSettingsStore()
 const multiDisplay = ref(store.useMultiDisplayMode)
 
 function saveMultiDisplay() {
@@ -27,7 +29,7 @@ function selectWinner() {
 
           <v-row>
             <v-col>
-              <Title msg="It's drawing time!" />
+              <Title :msg="settings.theme.eventTitle" />
 
               <v-row>
                 <v-col>

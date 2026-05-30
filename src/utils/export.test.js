@@ -133,4 +133,31 @@ describe('exportStateJson', () => {
     exportStateJson([], [])
     expect(anchor.download).toBe('drawing-state.json')
   })
+
+  it('includes settings when provided', () => {
+    const { getContent } = setupDownloadEnv()
+    const settings = { isPro: true, theme: { primary: '#000000' } }
+    exportStateJson([], [], settings)
+    expect(JSON.parse(getContent()).settings).toEqual(settings)
+  })
+
+  it('omits the settings key when not provided', () => {
+    const { getContent } = setupDownloadEnv()
+    exportStateJson([], [])
+    expect('settings' in JSON.parse(getContent())).toBe(false)
+  })
+})
+
+describe('deserializeState settings', () => {
+  it('returns settings when present', () => {
+    const { settings } = deserializeState(
+      JSON.stringify({ candidates: [], winners: [], settings: { isPro: false } }),
+    )
+    expect(settings).toEqual({ isPro: false })
+  })
+
+  it('omits settings when absent (backward compatible)', () => {
+    const result = deserializeState(JSON.stringify({ candidates: [], winners: [] }))
+    expect('settings' in result).toBe(false)
+  })
 })
