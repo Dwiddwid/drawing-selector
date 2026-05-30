@@ -3,7 +3,7 @@ import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore, mergeSettings } from '../stores/settings.js'
 import { parseParticipantsCsv } from '../utils/csv.js'
 import { downloadWinnersCsv, exportStateJson, deserializeState } from '../utils/export.js'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import EventSettings from './EventSettings.vue'
 
 const store = useParticipantStore()
@@ -17,6 +17,60 @@ const snackbarText = ref('')
 
 const newFirst = ref('')
 const newLast = ref('')
+
+const editingId = ref(null)
+const editFirst = ref('')
+const editLast = ref('')
+
+const pendingKey = ref(null)
+const pendingValue = ref(null)
+
+const availableFilterKeys = computed(() => {
+  const activeKeys = new Set(store.filters.map((f) => f.key))
+  return [...new Set(store.candidates.flatMap((c) => Object.keys(c.extras ?? {})))].filter(
+    (k) => !activeKeys.has(k),
+  )
+})
+
+const availableFilterValues = computed(() =>
+  pendingKey.value
+    ? [...new Set(store.candidates.map((c) => c.extras?.[pendingKey.value]).filter(Boolean))]
+    : [],
+)
+
+function startEdit(participant) {
+  editingId.value = participant.id
+  editFirst.value = participant.firstName
+  editLast.value = participant.lastName
+}
+
+function saveEdit() {
+  if (!editingId.value) return
+  const first = editFirst.value.trim()
+  const last = editLast.value.trim()
+  if (!first && !last) {
+    notify('Enter at least a first or last name.', 'warning')
+    return
+  }
+  store.updateCandidate(editingId.value, { firstName: first, lastName: last })
+  editingId.value = null
+}
+
+function cancelEdit() {
+  editingId.value = null
+}
+
+function onPendingKeyChange(key) {
+  pendingKey.value = key
+  pendingValue.value = null
+}
+
+function addFilter() {
+  if (!pendingKey.value || !pendingValue.value) return
+  store.addFilter(pendingKey.value, pendingValue.value)
+  pendingKey.value = null
+  pendingValue.value = null
+}
 
 function notify(text, color) {
   snackbarText.value = text
@@ -61,6 +115,9 @@ function selectedFile() {
 function resetCandidates() {
   store.resetCandidates()
   myFile.value = null
+  pendingKey.value = null
+  pendingValue.value = null
+  editingId.value = null
 }
 
 function resetWinners() {
@@ -128,20 +185,79 @@ function importStateFile() {
         <v-list-item
           v-for="participant in store.candidates"
           :key="participant.id"
-          :title="participant.firstName + ' ' + participant.lastName"
           :value="participant"
         >
+          <template v-if="editingId === participant.id">
+            <v-row dense align="center" class="py-1">
+              <v-col cols="5">
+                <v-text-field
+                  v-model="editFirst"
+                  label="First"
+                  density="compact"
+                  hide-details
+                  @keyup.enter="saveEdit"
+                  @keyup.escape="cancelEdit"
+                />
+              </v-col>
+              <v-col cols="5">
+                <v-text-field
+                  v-model="editLast"
+                  label="Last"
+                  density="compact"
+                  hide-details
+                  @keyup.enter="saveEdit"
+                  @keyup.escape="cancelEdit"
+                />
+              </v-col>
+            </v-row>
+          </template>
+          <template v-else>
+            {{ participant.firstName }} {{ participant.lastName }}
+          </template>
+
           <template v-slot:append>
-            <v-btn
-              icon
-              size="x-small"
-              variant="text"
-              color="error"
-              @click="store.removeCandidate(participant.id)"
-              aria-label="Remove participant"
-            >
-              <font-awesome-icon icon="fas fa-trash" />
-            </v-btn>
+            <template v-if="editingId === participant.id">
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                color="success"
+                @click="saveEdit"
+                aria-label="Save"
+              >
+                <font-awesome-icon icon="fas fa-check" />
+              </v-btn>
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                @click="cancelEdit"
+                aria-label="Cancel"
+              >
+                <font-awesome-icon icon="fas fa-xmark" />
+              </v-btn>
+            </template>
+            <template v-else>
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                @click="startEdit(participant)"
+                aria-label="Edit participant"
+              >
+                <font-awesome-icon icon="fas fa-pencil" />
+              </v-btn>
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                color="error"
+                @click="store.removeCandidate(participant.id)"
+                aria-label="Remove participant"
+              >
+                <font-awesome-icon icon="fas fa-trash" />
+              </v-btn>
+            </template>
           </template>
         </v-list-item>
       </v-list>
@@ -169,6 +285,67 @@ function importStateFile() {
           <v-btn size="small" color="primary" @click="addParticipant">Add</v-btn>
         </v-col>
       </v-row>
+    </template>
+  </v-card>
+
+  <v-card prepend-icon="fas fa-filter" variant="outlined">
+    <template v-slot:title> Draw Filter </template>
+    <template v-slot:text>
+      <p class="text-body-2 mb-3">
+        Restrict the draw to candidates matching all selected field values.
+      </p>
+
+      <v-row dense align="center">
+        <v-col cols="5">
+          <v-select
+            :model-value="pendingKey"
+            :items="availableFilterKeys"
+            label="Field"
+            density="compact"
+            hide-details
+            :disabled="availableFilterKeys.length === 0"
+            @update:model-value="onPendingKeyChange"
+          />
+        </v-col>
+        <v-col cols="5">
+          <v-select
+            v-model="pendingValue"
+            :items="availableFilterValues"
+            label="Value"
+            density="compact"
+            hide-details
+            :disabled="!pendingKey || availableFilterValues.length === 0"
+          />
+        </v-col>
+        <v-col cols="2" class="d-flex align-center">
+          <v-btn
+            size="small"
+            color="primary"
+            :disabled="!pendingKey || !pendingValue"
+            @click="addFilter"
+          >
+            Add
+          </v-btn>
+        </v-col>
+      </v-row>
+
+      <div v-if="store.filters.length > 0" class="mt-3">
+        <v-chip
+          v-for="f in store.filters"
+          :key="f.key"
+          class="mr-1 mb-1"
+          closable
+          @click:close="store.removeFilter(f.key)"
+        >
+          {{ f.key }}: {{ f.value }}
+        </v-chip>
+        <v-btn size="x-small" variant="text" class="mb-1" @click="store.clearFilters()">
+          Clear all
+        </v-btn>
+        <p class="text-body-2 mt-1">
+          {{ store.filteredCandidates.length }} of {{ store.candidates.length }} candidates match.
+        </p>
+      </div>
     </template>
   </v-card>
 

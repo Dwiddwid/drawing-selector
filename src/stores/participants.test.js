@@ -161,6 +161,107 @@ describe('participant store', () => {
     })
   })
 
+  describe('updateCandidate', () => {
+    it('patches firstName and lastName and persists', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.persistCandidates()
+
+      store.updateCandidate('Ada-Lovelace', { firstName: 'Ada', lastName: 'Byron' })
+
+      expect(store.candidates[0].lastName).toBe('Byron')
+      expect(JSON.parse(localStorage.getItem('candidates'))[0].lastName).toBe('Byron')
+    })
+
+    it('is a no-op for an unknown id', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.updateCandidate('ghost-id', { firstName: 'X' })
+      expect(store.candidates[0].firstName).toBe('Ada')
+    })
+  })
+
+  describe('filter', () => {
+    it('filteredCandidates returns all candidates when no filters are set', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3' }),
+        person('Alan', 'Turing', { Grade: '4' }),
+      ]
+      expect(store.filteredCandidates).toHaveLength(2)
+    })
+
+    it('filters by a single field', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3' }),
+        person('Alan', 'Turing', { Grade: '4' }),
+        person('Grace', 'Hopper', { Grade: '3' }),
+      ]
+      store.addFilter('Grade', '3')
+      expect(store.filteredCandidates).toHaveLength(2)
+      expect(store.filteredCandidates.map((c) => c.firstName)).toEqual(['Ada', 'Grace'])
+    })
+
+    it('filters by multiple fields simultaneously (AND logic)', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3', Bus: '12B' }),
+        person('Alan', 'Turing', { Grade: '3', Bus: '7A' }),
+        person('Grace', 'Hopper', { Grade: '4', Bus: '12B' }),
+      ]
+      store.addFilter('Grade', '3')
+      store.addFilter('Bus', '12B')
+      expect(store.filteredCandidates).toHaveLength(1)
+      expect(store.filteredCandidates[0].firstName).toBe('Ada')
+    })
+
+    it('addFilter replaces an existing filter for the same key', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3' }),
+        person('Alan', 'Turing', { Grade: '4' }),
+      ]
+      store.addFilter('Grade', '3')
+      store.addFilter('Grade', '4')
+      expect(store.filters).toHaveLength(1)
+      expect(store.filteredCandidates).toHaveLength(1)
+      expect(store.filteredCandidates[0].firstName).toBe('Alan')
+    })
+
+    it('removeFilter removes only the specified field', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3', Bus: '12B' }),
+        person('Alan', 'Turing', { Grade: '3', Bus: '7A' }),
+      ]
+      store.addFilter('Grade', '3')
+      store.addFilter('Bus', '12B')
+      store.removeFilter('Bus')
+      expect(store.filters).toHaveLength(1)
+      expect(store.filteredCandidates).toHaveLength(2)
+    })
+
+    it('clearFilters restores the full candidate pool', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3' }),
+        person('Alan', 'Turing', { Grade: '4' }),
+      ]
+      store.addFilter('Grade', '3')
+      store.clearFilters()
+      expect(store.filteredCandidates).toHaveLength(2)
+    })
+
+    it('resetCandidates also clears all filters', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace', { Grade: '3' })]
+      store.addFilter('Grade', '3')
+      store.resetCandidates()
+      expect(store.filters).toHaveLength(0)
+    })
+  })
+
   describe('full draw with fake timers', () => {
     beforeEach(() => vi.useFakeTimers())
     afterEach(() => vi.useRealTimers())
@@ -182,6 +283,31 @@ describe('participant store', () => {
       expect(store.winners).toHaveLength(1)
       expect(store.candidates).toHaveLength(2)
       expect(store.selected).not.toBeNull()
+    })
+
+    it('respects the active filter — winner always comes from the filtered pool', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3' }),
+        person('Alan', 'Turing', { Grade: '4' }),
+        person('Grace', 'Hopper', { Grade: '3' }),
+      ]
+      store.addFilter('Grade', '3')
+
+      expect(store.selectRandomCandidate()).toBe(true)
+      vi.runAllTimers()
+
+      expect(store.winners).toHaveLength(1)
+      expect(store.winners[0].extras.Grade).toBe('3')
+    })
+
+    it('returns false when the filtered pool is empty', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace', { Grade: '4' })]
+      store.addFilter('Grade', '3')
+
+      expect(store.selectRandomCandidate()).toBe(false)
+      expect(store.spinning).toBe(false)
     })
   })
 })
