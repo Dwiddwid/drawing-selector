@@ -151,6 +151,9 @@ function cancelReset() {
   pendingReset.value = null
 }
 
+// Called in two ways:
+//   confirmReset()                        — from the dialog confirm button; reads pendingReset
+//   confirmReset('candidates'|'winners')  — direct bypass when the pool is already empty
 function confirmReset(kind) {
   const target = kind ?? pendingReset.value
   pendingReset.value = null

@@ -75,13 +75,13 @@ const geom = computed(() => {
     const cw = vw.value
     const ch = vh.value
     const cx = cw / 2
-    // Push the center 16 % of the viewport height below the bottom edge so
-    // the spokes' convergence point stays offscreen. The radius is then set so
-    // the topmost point of the rim lands exactly GIANT_TOP_GAP px below the
-    // top of the viewport (cy - r = GIANT_TOP_GAP).  This is always large
-    // enough to cover the bottom corners: r ≈ 1.16·ch which is well above the
-    // bottom-corner distance of √((cw/2)² + (0.16·ch)²).
-    const cy = ch + ch * 1 //0.16 might not be enough
+    // Push the center 100 % of the viewport height below the visible area so
+    // the hub stays well offscreen regardless of aspect ratio. The radius is
+    // then set so the topmost point of the rim lands exactly GIANT_TOP_GAP px
+    // below the top of the viewport (cy - r = GIANT_TOP_GAP).
+    // At cy = 2·ch the radius is r ≈ 2·ch, which easily clears the bottom
+    // corners: corner distance = √((cw/2)² + ch²) ≤ √(ch² + ch²) ≈ 1.41·ch.
+    const cy = ch * 2
     const r = cy - GIANT_TOP_GAP
     return { cw, ch, cx, cy, r }
   }

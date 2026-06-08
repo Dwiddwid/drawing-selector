@@ -581,5 +581,22 @@ describe('participant store', () => {
       expect(store.lastResetCandidates).toBeNull()
       expect(store.lastResetWinners).toBeNull()
     })
+
+    it('importState clears active filters and persists the cleared state', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3' }),
+        person('Alan', 'Turing', { Grade: '4' }),
+      ]
+      store.addFilter('Grade', '3')
+      expect(store.filters).toHaveLength(1)
+
+      store.importState({ candidates: [person('Grace', 'Hopper')], winners: [] })
+      expect(store.filters).toHaveLength(0)
+      expect(JSON.parse(localStorage.getItem('filters'))).toEqual([])
+      // filteredCandidates should now return the full imported pool.
+      expect(store.filteredCandidates).toHaveLength(1)
+      expect(store.filteredCandidates[0].firstName).toBe('Grace')
+    })
   })
 })

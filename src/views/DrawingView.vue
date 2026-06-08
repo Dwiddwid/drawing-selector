@@ -26,8 +26,9 @@ const wheelWinnerSegmentIdx = ref(-1)
 const pendingWinnerIdx = ref(-1)
 
 function startDraw() {
-  // Pick up any filter the admin set after this (possibly separate) window
-  // opened, so multi-display draws honor the current Draw Filter.
+  // Reload filters from localStorage so a separate projector window always
+  // honors the admin's current Draw Filter selection. In single-window mode
+  // the store is already up-to-date, so this is a cheap no-op in that case.
   store.loadFilters()
   if (isWheel.value) {
     if (!store.beginVisualSpin()) return

@@ -118,6 +118,10 @@ export const useParticipantStore = defineStore('participantStore', {
       localStorage.removeItem('filters')
     },
     resetWinners() {
+      // Snapshot winners for undo, then move them back into the candidate pool
+      // so they can be re-drawn if the operator confirms the reset was intentional.
+      // (This differs from a simple clear — winners are not lost until a new draw
+      // commits or the undo window closes.)
       this.lastResetWinners = this.winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } }))
       // Add winners back to candidates
       this.candidates.push(...this.lastResetWinners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } })))
@@ -193,10 +197,12 @@ export const useParticipantStore = defineStore('participantStore', {
       this.winners = winners
       this.index = -1
       this.selected = null
+      this.filters = []
       this.lastResetCandidates = null
       this.lastResetWinners = null
       this.persistCandidates()
       this.persistWinners()
+      this.persistFilters()
     },
     pointToRandomCandidate() {
       const pool = this.filteredCandidates
