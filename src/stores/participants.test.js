@@ -260,6 +260,65 @@ describe('participant store', () => {
       store.resetCandidates()
       expect(store.filters).toHaveLength(0)
     })
+
+    it('addFilter / removeFilter / clearFilters persist to localStorage', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace', { Grade: '3', Bus: '12B' })]
+
+      store.addFilter('Grade', '3')
+      store.addFilter('Bus', '12B')
+      expect(JSON.parse(localStorage.getItem('filters'))).toEqual([
+        { key: 'Grade', value: '3' },
+        { key: 'Bus', value: '12B' },
+      ])
+
+      store.removeFilter('Bus')
+      expect(JSON.parse(localStorage.getItem('filters'))).toEqual([{ key: 'Grade', value: '3' }])
+
+      store.clearFilters()
+      expect(JSON.parse(localStorage.getItem('filters'))).toEqual([])
+    })
+
+    it('resetCandidates clears the persisted filters key', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace', { Grade: '3' })]
+      store.addFilter('Grade', '3')
+      store.resetCandidates()
+      expect(localStorage.getItem('filters')).toBeNull()
+    })
+
+    it('a fresh store (projector window) loads persisted filters and applies them', () => {
+      // Simulate the admin window setting a filter and persisting it.
+      const admin = useParticipantStore()
+      admin.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3' }),
+        person('Alan', 'Turing', { Grade: '4' }),
+      ]
+      admin.persistCandidates()
+      admin.addFilter('Grade', '3')
+
+      // A separate window mounts its own store and loads from storage.
+      setActivePinia(createPinia())
+      const projector = useParticipantStore()
+      projector.loadFromStorage()
+      expect(projector.filters).toEqual([{ key: 'Grade', value: '3' }])
+      expect(projector.filteredCandidates).toHaveLength(1)
+      expect(projector.filteredCandidates[0].firstName).toBe('Ada')
+    })
+
+    it('loadFilters reloads only filters from storage without touching candidates', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace', { Grade: '3' }),
+        person('Alan', 'Turing', { Grade: '4' }),
+      ]
+      // Another window wrote a filter after this store was set up.
+      localStorage.setItem('filters', JSON.stringify([{ key: 'Grade', value: '4' }]))
+      store.loadFilters()
+      expect(store.candidates).toHaveLength(2)
+      expect(store.filteredCandidates).toHaveLength(1)
+      expect(store.filteredCandidates[0].firstName).toBe('Alan')
+    })
   })
 
   describe('full draw with fake timers', () => {

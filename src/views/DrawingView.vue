@@ -26,6 +26,9 @@ const wheelWinnerSegmentIdx = ref(-1)
 const pendingWinnerIdx = ref(-1)
 
 function startDraw() {
+  // Pick up any filter the admin set after this (possibly separate) window
+  // opened, so multi-display draws honor the current Draw Filter.
+  store.loadFilters()
   if (isWheel.value) {
     if (!store.beginVisualSpin()) return
     const idx = store.pickWinnerIndex()

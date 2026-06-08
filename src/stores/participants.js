@@ -63,9 +63,19 @@ export const useParticipantStore = defineStore('participantStore', {
       this.candidates = readJSON('candidates', [])
       this.winners = readJSON('winners', [])
       this.useMultiDisplayMode = readJSON('useMultiDisplayMode', false)
+      this.filters = readJSON('filters', [])
+    },
+    // Reload just the draw filters from storage. The projector/drawing screen
+    // runs in a separate window (separate store), so it calls this right before
+    // a draw to honor filters the admin set after the window was opened.
+    loadFilters() {
+      this.filters = readJSON('filters', [])
     },
     persistCandidates() {
       localStorage.setItem('candidates', JSON.stringify(this.candidates))
+    },
+    persistFilters() {
+      localStorage.setItem('filters', JSON.stringify(this.filters))
     },
     persistWinners() {
       localStorage.setItem('winners', JSON.stringify(this.winners))
@@ -105,6 +115,7 @@ export const useParticipantStore = defineStore('participantStore', {
       this.selected = null
       this.filters = []
       localStorage.removeItem('candidates')
+      localStorage.removeItem('filters')
     },
     resetWinners() {
       this.lastResetWinners = this.winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } }))
@@ -121,6 +132,7 @@ export const useParticipantStore = defineStore('participantStore', {
       this.filters = this.lastResetCandidates.filters
       this.lastResetCandidates = null
       this.persistCandidates()
+      this.persistFilters()
       return true
     },
     undoResetWinners() {
@@ -163,13 +175,18 @@ export const useParticipantStore = defineStore('participantStore', {
       } else {
         this.filters.push({ key, value })
       }
+      this.persistFilters()
     },
     removeFilter(key) {
       const idx = this.filters.findIndex((f) => f.key === key)
-      if (idx !== -1) this.filters.splice(idx, 1)
+      if (idx !== -1) {
+        this.filters.splice(idx, 1)
+        this.persistFilters()
+      }
     },
     clearFilters() {
       this.filters = []
+      this.persistFilters()
     },
     importState({ candidates, winners }) {
       this.candidates = candidates
