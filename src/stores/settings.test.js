@@ -84,8 +84,74 @@ describe('settings store', () => {
   it('resetSettings restores defaults and clears storage', () => {
     const settings = useSettingsStore()
     settings.updateTheme({ primary: '#000000' })
+    settings.setAnimationStyle('wheel')
+    settings.updateCelebration({ confetti: false, sound: false })
     settings.resetSettings()
     expect(settings.theme.primary).toBe('#1e3d59')
+    expect(settings.animationStyle).toBe('classic')
+    expect(settings.celebration).toEqual({ confetti: true, sound: true })
     expect(localStorage.getItem('settings')).toBe(null)
+  })
+
+  describe('animation & celebration', () => {
+    it('defaults to the classic style with confetti and sound enabled', () => {
+      const settings = useSettingsStore()
+      expect(settings.animationStyle).toBe('classic')
+      expect(settings.celebration).toEqual({ confetti: true, sound: true })
+    })
+
+    it('setAnimationStyle accepts known styles and persists', () => {
+      const settings = useSettingsStore()
+      settings.setAnimationStyle('wheel')
+      expect(settings.animationStyle).toBe('wheel')
+      expect(JSON.parse(localStorage.getItem('settings')).animationStyle).toBe('wheel')
+    })
+
+    it('setAnimationStyle accepts the giant wheel style', () => {
+      const settings = useSettingsStore()
+      settings.setAnimationStyle('wheel-giant')
+      expect(settings.animationStyle).toBe('wheel-giant')
+      expect(JSON.parse(localStorage.getItem('settings')).animationStyle).toBe('wheel-giant')
+    })
+
+    it('setAnimationStyle falls back to classic for an unknown value', () => {
+      const settings = useSettingsStore()
+      settings.setAnimationStyle('disco')
+      expect(settings.animationStyle).toBe('classic')
+    })
+
+    it('updateCelebration patches individual flags', () => {
+      const settings = useSettingsStore()
+      settings.updateCelebration({ confetti: false })
+      expect(settings.celebration.confetti).toBe(false)
+      expect(settings.celebration.sound).toBe(true)
+    })
+
+    it('mergeSettings round-trips animation style and celebration flags', () => {
+      const merged = mergeSettings({
+        animationStyle: 'reel',
+        celebration: { sound: false },
+      })
+      expect(merged.animationStyle).toBe('reel')
+      expect(merged.celebration).toEqual({ confetti: true, sound: false })
+    })
+
+    it('mergeSettings rejects an unknown animation style', () => {
+      const merged = mergeSettings({ animationStyle: 'made-up' })
+      expect(merged.animationStyle).toBe('classic')
+    })
+
+    it('persists and reloads animation style + celebration', () => {
+      const settings = useSettingsStore()
+      settings.setAnimationStyle('reel')
+      settings.updateCelebration({ confetti: false })
+
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.animationStyle).toBe('reel')
+      expect(reloaded.celebration.confetti).toBe(false)
+      expect(reloaded.celebration.sound).toBe(true)
+    })
   })
 })

@@ -28,6 +28,16 @@ export function defaultSettings() {
       // extras header; `visible` toggles it; `label` overrides the displayed text.
       fields: [],
     },
+    // Reveal animation variant for the drawing screen. The picking math is
+    // identical across styles; the variant tweaks timing curves and adds a CSS
+    // class so each looks/feels distinct.
+    animationStyle: 'classic', // 'classic' | 'wheel' | 'reel'
+    // Post-reveal celebration. Both are opt-out so existing installs keep the
+    // bigger-feeling default presentation.
+    celebration: {
+      confetti: true,
+      sound: true,
+    },
   }
 }
 
@@ -40,6 +50,8 @@ function readJSON(key, fallback) {
     return fallback
   }
 }
+
+const ANIMATION_STYLES = ['classic', 'wheel', 'wheel-giant', 'reel']
 
 // Deep-merge stored settings over the defaults so settings saved by an older
 // version (missing newly-added fields) still load cleanly.
@@ -56,6 +68,10 @@ export function mergeSettings(stored) {
         ? stored.winnerDisplay.fields
         : base.winnerDisplay.fields,
     },
+    animationStyle: ANIMATION_STYLES.includes(stored.animationStyle)
+      ? stored.animationStyle
+      : base.animationStyle,
+    celebration: { ...base.celebration, ...(stored.celebration || {}) },
   }
 }
 
@@ -67,6 +83,8 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.isPro = merged.isPro
       this.theme = merged.theme
       this.winnerDisplay = merged.winnerDisplay
+      this.animationStyle = merged.animationStyle
+      this.celebration = merged.celebration
     },
     persist() {
       localStorage.setItem(
@@ -75,8 +93,18 @@ export const useSettingsStore = defineStore('settingsStore', {
           isPro: this.isPro,
           theme: this.theme,
           winnerDisplay: this.winnerDisplay,
+          animationStyle: this.animationStyle,
+          celebration: this.celebration,
         }),
       )
+    },
+    setAnimationStyle(value) {
+      this.animationStyle = ANIMATION_STYLES.includes(value) ? value : 'classic'
+      this.persist()
+    },
+    updateCelebration(partial) {
+      this.celebration = { ...this.celebration, ...partial }
+      this.persist()
     },
     setIsPro(value) {
       this.isPro = value
@@ -132,6 +160,8 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.isPro = fresh.isPro
       this.theme = fresh.theme
       this.winnerDisplay = fresh.winnerDisplay
+      this.animationStyle = fresh.animationStyle
+      this.celebration = fresh.celebration
       localStorage.removeItem(SETTINGS_KEY)
     },
   },

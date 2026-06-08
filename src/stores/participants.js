@@ -11,6 +11,18 @@ function readJSON(key, fallback) {
   }
 }
 
+// Timing curves for each animation style. The picking math is identical across
+// styles; these knobs just change how the reveal *feels*.
+//   baseDelay:  starting ms between ticks (low = faster initial scroll)
+//   step:       ms added to the delay once decel begins (higher = sharper slow)
+//   maxDelay:   stop spinning once this is exceeded
+//   minRandom:  upper bound of the random "time before slow" pre-roll
+export const ANIMATION_TIMING = {
+  classic: { baseDelay: 10, step: 50, maxDelay: 500, minRandom: 300 },
+  wheel: { baseDelay: 30, step: 25, maxDelay: 750, minRandom: 200 },
+  reel: { baseDelay: 15, step: 35, maxDelay: 600, minRandom: 250 },
+}
+
 export const useParticipantStore = defineStore('participantStore', {
   state: () => ({
     candidates: [],
@@ -20,6 +32,11 @@ export const useParticipantStore = defineStore('participantStore', {
     spinning: false,
     useMultiDisplayMode: false,
     filters: [],
+    // Snapshots of the most recent reset so the operator can undo an
+    // accidental "Reset candidates" / "Reset winners" click. Cleared once a
+    // new import or commit happens (i.e. the undo would no longer make sense).
+    lastResetCandidates: null,
+    lastResetWinners: null,
   }),
   getters: {
     currentCandidate(state) {
@@ -46,9 +63,19 @@ export const useParticipantStore = defineStore('participantStore', {
       this.candidates = readJSON('candidates', [])
       this.winners = readJSON('winners', [])
       this.useMultiDisplayMode = readJSON('useMultiDisplayMode', false)
+      this.filters = readJSON('filters', [])
+    },
+    // Reload just the draw filters from storage. The projector/drawing screen
+    // runs in a separate window (separate store), so it calls this right before
+    // a draw to honor filters the admin set after the window was opened.
+    loadFilters() {
+      this.filters = readJSON('filters', [])
     },
     persistCandidates() {
       localStorage.setItem('candidates', JSON.stringify(this.candidates))
+    },
+    persistFilters() {
+      localStorage.setItem('filters', JSON.stringify(this.filters))
     },
     persistWinners() {
       localStorage.setItem('winners', JSON.stringify(this.winners))
@@ -72,19 +99,60 @@ export const useParticipantStore = defineStore('participantStore', {
       this.candidates = filtered
       this.index = -1
       this.selected = null
+      this.lastResetCandidates = null
       this.persistCandidates()
       return { imported: filtered.length, skipped }
     },
     resetCandidates() {
+      // Snapshot the current list (and active filters) so the operator can
+      // undo a mistaken click before doing anything else.
+      this.lastResetCandidates = {
+        candidates: this.candidates.map((c) => ({ ...c, extras: { ...(c.extras ?? {}) } })),
+        filters: this.filters.map((f) => ({ ...f })),
+      }
       this.candidates = []
       this.index = -1
       this.selected = null
       this.filters = []
       localStorage.removeItem('candidates')
+      localStorage.removeItem('filters')
     },
     resetWinners() {
+      // Snapshot winners for undo, then move them back into the candidate pool
+      // so they can be re-drawn if the operator confirms the reset was intentional.
+      // (This differs from a simple clear — winners are not lost until a new draw
+      // commits or the undo window closes.)
+      this.lastResetWinners = this.winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } }))
+      // Add winners back to candidates
+      this.candidates.push(...this.lastResetWinners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } })))
       this.winners = []
-      localStorage.removeItem('winners')
+      this.selected = null
+      this.persistCandidates()
+      this.persistWinners()
+    },
+    undoResetCandidates() {
+      if (!this.lastResetCandidates) return false
+      this.candidates = this.lastResetCandidates.candidates
+      this.filters = this.lastResetCandidates.filters
+      this.lastResetCandidates = null
+      this.persistCandidates()
+      this.persistFilters()
+      return true
+    },
+    undoResetWinners() {
+      if (!this.lastResetWinners) return false
+      // Remove the winners from candidates (by id)
+      const winnerIds = new Set(this.lastResetWinners.map((w) => w.id))
+      this.candidates = this.candidates.filter((c) => !winnerIds.has(c.id))
+      this.winners = this.lastResetWinners
+      this.lastResetWinners = null
+      this.persistCandidates()
+      this.persistWinners()
+      return true
+    },
+    clearResetUndo() {
+      this.lastResetCandidates = null
+      this.lastResetWinners = null
     },
     addCandidate({ firstName, lastName, extras = {} }) {
       this.candidates.push({ id: uid(), firstName, lastName, extras })
@@ -111,21 +179,30 @@ export const useParticipantStore = defineStore('participantStore', {
       } else {
         this.filters.push({ key, value })
       }
+      this.persistFilters()
     },
     removeFilter(key) {
       const idx = this.filters.findIndex((f) => f.key === key)
-      if (idx !== -1) this.filters.splice(idx, 1)
+      if (idx !== -1) {
+        this.filters.splice(idx, 1)
+        this.persistFilters()
+      }
     },
     clearFilters() {
       this.filters = []
+      this.persistFilters()
     },
     importState({ candidates, winners }) {
       this.candidates = candidates
       this.winners = winners
       this.index = -1
       this.selected = null
+      this.filters = []
+      this.lastResetCandidates = null
+      this.lastResetWinners = null
       this.persistCandidates()
       this.persistWinners()
+      this.persistFilters()
     },
     pointToRandomCandidate() {
       const pool = this.filteredCandidates
@@ -145,24 +222,61 @@ export const useParticipantStore = defineStore('participantStore', {
       this.persistWinners()
       this.persistCandidates()
     },
-    selectRandomCandidate() {
+    // Pick a winner index up front *without* mutating state. Used by visual
+    // animations (e.g. the wheel) that need to know who the winner is before
+    // the on-screen reveal can land on them. Returns -1 if the pool is empty.
+    pickWinnerIndex() {
+      const pool = this.filteredCandidates
+      if (pool.length === 0) return -1
+      const pick = pool[Math.floor(Math.random() * pool.length)]
+      return this.candidates.findIndex((c) => c.id === pick.id)
+    },
+    // Enter "spinning" without running the timer-driven slot-machine loop.
+    // The caller (a visual animation component) is responsible for ending the
+    // spin via commitAt().
+    beginVisualSpin() {
+      if (this.spinning) return false
+      if (this.filteredCandidates.length === 0) return false
+      this.spinning = true
+      this.selected = null
+      this.clearResetUndo()
+      return true
+    },
+    // Commit a pre-chosen index (no random pick). Used by the wheel and other
+    // visual animations that determined the winner in advance via
+    // pickWinnerIndex(). Bails cleanly on an out-of-range index and always
+    // leaves spinning=false.
+    commitAt(idx) {
+      this.spinning = false
+      if (idx < 0 || idx >= this.candidates.length) {
+        this.index = -1
+        return false
+      }
+      this.index = idx
+      this.commitSelection()
+      return true
+    },
+    selectRandomCandidate(style = 'classic') {
       if (this.spinning) return false
       if (this.filteredCandidates.length === 0) return false
 
+      const timing = ANIMATION_TIMING[style] ?? ANIMATION_TIMING.classic
       this.spinning = true
       this.selected = null
+      // A committed draw renders any prior reset-undo meaningless.
+      this.clearResetUndo()
 
-      const timeBeforeSlow = Math.floor(Math.random() * 300)
+      const timeBeforeSlow = Math.floor(Math.random() * timing.minRandom)
       let i = 0
-      let delay = 10
+      let delay = timing.baseDelay
 
       const tick = () => {
         this.pointToRandomCandidate()
         i += 1
         if (i > timeBeforeSlow) {
-          delay += 50
+          delay += timing.step
         }
-        if (delay < 500) {
+        if (delay < timing.maxDelay) {
           setTimeout(tick, delay)
         } else {
           this.spinning = false

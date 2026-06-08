@@ -14,6 +14,17 @@ const stateFile = ref(null)
 const snackbar = ref(false)
 const snackbarColor = ref('success')
 const snackbarText = ref('')
+const snackbarUndo = ref(null) // function or null — shows "Undo" when set
+
+// Reset-confirmation dialog. `pendingReset` is 'candidates' | 'winners' | null.
+const pendingReset = ref(null)
+const resetCounts = {
+  candidates: () => store.candidates.length,
+  winners: () => store.winners.length,
+}
+const pendingResetCount = computed(() =>
+  pendingReset.value ? resetCounts[pendingReset.value]() : 0,
+)
 
 const newFirst = ref('')
 const newLast = ref('')
@@ -72,10 +83,17 @@ function addFilter() {
   pendingValue.value = null
 }
 
-function notify(text, color) {
+function notify(text, color, undoAction = null) {
   snackbarText.value = text
   snackbarColor.value = color
+  snackbarUndo.value = undoAction
   snackbar.value = true
+}
+
+function runUndo() {
+  if (typeof snackbarUndo.value === 'function') snackbarUndo.value()
+  snackbar.value = false
+  snackbarUndo.value = null
 }
 
 function selectedFile() {
@@ -112,16 +130,58 @@ function selectedFile() {
   }
 }
 
-function resetCandidates() {
-  store.resetCandidates()
-  myFile.value = null
-  pendingKey.value = null
-  pendingValue.value = null
-  editingId.value = null
+function askResetCandidates() {
+  if (store.candidates.length === 0) {
+    // Nothing to lose — just clear quietly without the modal.
+    confirmReset('candidates')
+    return
+  }
+  pendingReset.value = 'candidates'
 }
 
-function resetWinners() {
-  store.resetWinners()
+function askResetWinners() {
+  if (store.winners.length === 0) {
+    confirmReset('winners')
+    return
+  }
+  pendingReset.value = 'winners'
+}
+
+function cancelReset() {
+  pendingReset.value = null
+}
+
+// Called in two ways:
+//   confirmReset()                        — from the dialog confirm button; reads pendingReset
+//   confirmReset('candidates'|'winners')  — direct bypass when the pool is already empty
+function confirmReset(kind) {
+  const target = kind ?? pendingReset.value
+  pendingReset.value = null
+  if (target === 'candidates') {
+    const count = store.candidates.length
+    store.resetCandidates()
+    myFile.value = null
+    pendingKey.value = null
+    pendingValue.value = null
+    editingId.value = null
+    if (count > 0) {
+      notify(
+        `Cleared ${count} candidate${count === 1 ? '' : 's'}.`,
+        'info',
+        () => store.undoResetCandidates(),
+      )
+    }
+  } else if (target === 'winners') {
+    const count = store.winners.length
+    store.resetWinners()
+    if (count > 0) {
+      notify(
+        `Cleared ${count} winner${count === 1 ? '' : 's'}.`,
+        'info',
+        () => store.undoResetWinners(),
+      )
+    }
+  }
 }
 
 function addParticipant() {
@@ -371,10 +431,29 @@ function importStateFile() {
       <p>Choose a .csv file of candidates to import.</p>
 
       <v-file-input label="Import CSV" ref="myFile" @change="selectedFile" accept=".csv" />
-      <v-btn class="mr-2 mb-2" @click="resetCandidates">Reset candidates</v-btn>
-      <v-btn class="mb-2" @click="resetWinners">Reset winners</v-btn>
+      <v-btn class="mr-2 mb-2" @click="askResetCandidates">Reset candidates</v-btn>
+      <v-btn class="mb-2" @click="askResetWinners">Reset winners</v-btn>
     </template>
   </v-card>
+
+  <v-dialog :model-value="pendingReset !== null" @update:model-value="(v) => !v && cancelReset()" max-width="420">
+    <v-card>
+      <v-card-title>
+        Reset {{ pendingReset === 'candidates' ? 'candidates' : 'winners' }}?
+      </v-card-title>
+      <v-card-text>
+        This will clear
+        <strong>{{ pendingResetCount }}</strong>
+        {{ pendingReset === 'candidates' ? 'candidate' : 'winner' }}{{ pendingResetCount === 1 ? '' : 's' }}.
+        You'll get a short window to undo from the toast.
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="cancelReset">Cancel</v-btn>
+        <v-btn color="error" variant="elevated" @click="confirmReset()">Reset</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 
   <v-expansion-panels>
     <v-expansion-panel>
@@ -405,7 +484,10 @@ function importStateFile() {
 
   <EventSettings @notify="notify" />
 
-  <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="4000">
+  <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="6000">
     {{ snackbarText }}
+    <template v-if="snackbarUndo" v-slot:actions>
+      <v-btn variant="text" @click="runUndo">Undo</v-btn>
+    </template>
   </v-snackbar>
 </template>

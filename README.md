@@ -26,7 +26,8 @@ after the first load.
   (e.g. "one winner per bus route" or "3rd grade only"). Stack multiple filters
   to combine criteria.
 - **Slot-machine animation** — names cycle quickly and slow to a stop on the
-  winner.
+  winner. **Pro** users can switch the reveal to a spinning wheel or a vertical
+  reel, and trigger confetti + a celebratory chime on each winner.
 - **Offline-first / installable (PWA)** — the app shell and all assets are
   precached by a Workbox service worker; it loads reliably with no network
   connection and can be installed on a device from the browser.
@@ -51,6 +52,12 @@ release.
   (`First Last`, `First` only, or `Last, First`), pick which detail fields are
   shown, rename their labels, reorder them, and toggle whether labels are shown
   at all.
+- **Reveal animation styles** — choose Classic slot machine, Spinning wheel,
+  Giant wheel (an oversized wheel whose center sits off-screen so names scroll
+  past the pointer — every entry appears on the wheel), or Vertical reel per
+  event.
+- **Celebration effects** — confetti burst and a short celebratory chime on
+  each winner reveal (either can be toggled off independently).
 - **Portable "Offline Edition"** — build the entire app as a single
   self-contained `index.html` you can copy to a USB stick and open directly
   (`file://`) on a computer with no network or installation. See
@@ -94,6 +101,8 @@ handled correctly.
 5. Click **Start drawing** to open the drawing screen, then **GO!** to draw a
    winner. The winner is announced and added to the Winners list.
 6. Use **Reset candidates** / **Reset winners** to clear the cached lists.
+   A confirmation prompt and a short-window **Undo** in the toast guard against
+   accidental data loss.
 
 ### Theming & winner display (Pro)
 
@@ -194,18 +203,14 @@ npm run test:watch  # watch mode
 
 Tests cover the CSV parser/normalizer (`src/utils/csv.js`), the export helpers
 (`src/utils/export.js`), the winner-display formatting (`src/utils/winnerDisplay.js`),
-the drawing store (`src/stores/participants.js`), the settings store
-(`src/stores/settings.js`), and the platform/portable helpers
-(`src/utils/platform.js`) — 81 tests total.
+the drawing store (`src/stores/participants.js`) including all three animation
+styles and reset/undo, the settings store (`src/stores/settings.js`), the
+celebration helpers (`src/utils/celebration.js`), the platform/portable helpers
+(`src/utils/platform.js`), and an end-to-end multi-display integration that
+wires the trigger channel into the store in both transports
+(`src/utils/multiDisplay.test.js`) — 109 tests total.
 
 ## Roadmap / future enhancements
 
-- **More animation styles (Pro).** Alternate reveals such as a spinning wheel or
-  slot-machine reel, selectable per event.
-- **Celebration effects (Pro).** Confetti and sound on the winner reveal.
 - **Licensing / payment enforcement.** Gate the Pro features behind a real
   license check (the `isPro` flag is the scaffold for this).
-- **Confirm / undo on resets.** A guard before Reset candidates / Reset winners
-  to prevent accidental data loss.
-- **Broader test coverage.** Component/end-to-end tests for the drawing flow and
-  the multi-display (`BroadcastChannel`) path.
