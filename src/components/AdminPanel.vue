@@ -64,6 +64,19 @@ function removeSelected() {
   notify(`Removed ${ids.length} candidate${ids.length === 1 ? '' : 's'}.`, 'info')
 }
 
+// Drop any selected ids that no longer exist in the pool (single delete, reset,
+// import, undo) so the "Remove selected" count and select-all never reflect
+// ghost rows. Keyed on length, which changes on every add/remove path.
+watch(
+  () => store.candidates.length,
+  () => {
+    if (selectedIds.value.size === 0) return
+    const present = new Set(store.candidates.map((c) => c.id))
+    const next = new Set([...selectedIds.value].filter((id) => present.has(id)))
+    if (next.size !== selectedIds.value.size) selectedIds.value = next
+  },
+)
+
 const myFile = ref(null)
 const stateFile = ref(null)
 const snackbar = ref(false)
@@ -361,7 +374,11 @@ function importStateFile() {
           :item-height="rowHeight"
         >
           <template v-slot:default="{ item: participant }">
-            <v-list-item :key="participant.id" :density="listDensity">
+            <v-list-item
+              :key="participant.id"
+              :density="listDensity"
+              :title="`${participant.firstName} ${participant.lastName}`"
+            >
               <template v-slot:prepend>
                 <v-checkbox
                   :model-value="selectedIds.has(participant.id)"
@@ -372,77 +389,26 @@ function importStateFile() {
                 />
               </template>
 
-              <template v-if="editingId === participant.id">
-                <v-row dense align="center" class="py-1">
-                  <v-col cols="5">
-                    <v-text-field
-                      v-model="editFirst"
-                      label="First"
-                      density="compact"
-                      hide-details
-                      @keyup.enter="saveEdit"
-                      @keyup.escape="cancelEdit"
-                    />
-                  </v-col>
-                  <v-col cols="5">
-                    <v-text-field
-                      v-model="editLast"
-                      label="Last"
-                      density="compact"
-                      hide-details
-                      @keyup.enter="saveEdit"
-                      @keyup.escape="cancelEdit"
-                    />
-                  </v-col>
-                </v-row>
-              </template>
-              <template v-else>
-                {{ participant.firstName }} {{ participant.lastName }}
-              </template>
-
               <template v-slot:append>
-                <template v-if="editingId === participant.id">
-                  <v-btn
-                    icon
-                    size="x-small"
-                    variant="text"
-                    color="success"
-                    @click="saveEdit"
-                    aria-label="Save"
-                  >
-                    <font-awesome-icon icon="fas fa-check" />
-                  </v-btn>
-                  <v-btn
-                    icon
-                    size="x-small"
-                    variant="text"
-                    @click="cancelEdit"
-                    aria-label="Cancel"
-                  >
-                    <font-awesome-icon icon="fas fa-xmark" />
-                  </v-btn>
-                </template>
-                <template v-else>
-                  <v-btn
-                    icon
-                    size="x-small"
-                    variant="text"
-                    @click="startEdit(participant)"
-                    aria-label="Edit participant"
-                  >
-                    <font-awesome-icon icon="fas fa-pencil" />
-                  </v-btn>
-                  <v-btn
-                    icon
-                    size="x-small"
-                    variant="text"
-                    color="error"
-                    @click="store.removeCandidate(participant.id)"
-                    aria-label="Remove participant"
-                  >
-                    <font-awesome-icon icon="fas fa-trash" />
-                  </v-btn>
-                </template>
+                <v-btn
+                  icon
+                  size="x-small"
+                  variant="text"
+                  @click="startEdit(participant)"
+                  aria-label="Edit participant"
+                >
+                  <font-awesome-icon icon="fas fa-pencil" />
+                </v-btn>
+                <v-btn
+                  icon
+                  size="x-small"
+                  variant="text"
+                  color="error"
+                  @click="store.removeCandidate(participant.id)"
+                  aria-label="Remove participant"
+                >
+                  <font-awesome-icon icon="fas fa-trash" />
+                </v-btn>
               </template>
             </v-list-item>
           </template>
@@ -637,6 +603,44 @@ function importStateFile() {
         <v-btn color="error" variant="elevated" @click="confirmReset('winners', 'eliminate')">
           Eliminate
         </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <!-- Edit participant. A dialog (rather than inline) keeps the virtual-scroll
+       rows a uniform height so taller edit fields never clip the next row. -->
+  <v-dialog :model-value="editingId !== null" @update:model-value="(v) => !v && cancelEdit()" max-width="420">
+    <v-card>
+      <v-card-title>Edit participant</v-card-title>
+      <v-card-text>
+        <v-row dense>
+          <v-col cols="6">
+            <v-text-field
+              v-model="editFirst"
+              label="First name"
+              density="compact"
+              hide-details
+              autofocus
+              @keyup.enter="saveEdit"
+              @keyup.escape="cancelEdit"
+            />
+          </v-col>
+          <v-col cols="6">
+            <v-text-field
+              v-model="editLast"
+              label="Last name"
+              density="compact"
+              hide-details
+              @keyup.enter="saveEdit"
+              @keyup.escape="cancelEdit"
+            />
+          </v-col>
+        </v-row>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="cancelEdit">Cancel</v-btn>
+        <v-btn color="primary" variant="elevated" @click="saveEdit">Save</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

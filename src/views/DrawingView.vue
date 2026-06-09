@@ -402,8 +402,8 @@ button {
   width: max-content;
   max-width: min(85vw, 64vmin);
   z-index: 10;
-  background: rgba(var(--v-theme-surface), var(--app-card-opacity, 0.96));
-  backdrop-filter: blur(max(2px, var(--app-card-blur, 2px)));
+  background: rgba(var(--v-theme-surface), var(--app-card-opacity, 1));
+  backdrop-filter: blur(var(--app-card-blur, 0px));
 }
 .overlay-content {
   text-align: center;
