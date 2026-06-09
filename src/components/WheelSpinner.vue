@@ -25,6 +25,16 @@ const props = defineProps({
       '#4dd0e1',
     ],
   },
+  // Pointer/arrow color. Defaults to the original coral.
+  pointerColor: { type: String, default: '#ff6f61' },
+  // Which edge the pointer sits on for the standard wheel. The giant wheel's
+  // pointer is fixed at the top of the screen, so this only affects the normal
+  // wheel.
+  pointerPosition: {
+    type: String,
+    default: 'top',
+    validator: (v) => ['top', 'right', 'bottom', 'left'].includes(v),
+  },
 })
 const emit = defineEmits(['done'])
 
@@ -40,6 +50,12 @@ let rafId = 0
 let bitmap = null
 
 const segCount = computed(() => props.segments.length)
+
+// Angle of each edge measured from the +x axis. `targetRotation` lands the
+// winner at the top, so when the pointer is elsewhere we rotate the wheel an
+// extra quarter/half turn to bring the winner under it.
+const EDGE_ANGLE = { top: -Math.PI / 2, right: 0, bottom: Math.PI / 2, left: Math.PI }
+const pointerOffset = computed(() => (EDGE_ANGLE[props.pointerPosition] ?? -Math.PI / 2) + Math.PI / 2)
 const dpr = typeof window !== 'undefined' ? Math.max(1, window.devicePixelRatio || 1) : 1
 
 // Cap the backing-store resolution. A giant wheel at full DPR can exceed the
@@ -175,16 +191,23 @@ function renderFrame() {
     ctx.restore()
   }
   if (!props.giant) {
+    // Pointer pokes inward from just outside the rim. Drawn in a frame rotated
+    // so its tip faces the chosen edge; `top` reproduces the original arrow.
+    const edge = EDGE_ANGLE[props.pointerPosition] ?? -Math.PI / 2
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.rotate(edge + Math.PI / 2)
     ctx.beginPath()
-    ctx.moveTo(cx - 16, 6)
-    ctx.lineTo(cx + 16, 6)
-    ctx.lineTo(cx, 38)
+    ctx.moveTo(-16, -(r + 6))
+    ctx.lineTo(16, -(r + 6))
+    ctx.lineTo(0, -(r - 26))
     ctx.closePath()
-    ctx.fillStyle = '#ff6f61'
+    ctx.fillStyle = props.pointerColor
     ctx.fill()
     ctx.strokeStyle = '#ffffff'
     ctx.lineWidth = 3
     ctx.stroke()
+    ctx.restore()
   }
 }
 
@@ -240,7 +263,7 @@ function spin() {
     return
   }
   const startRot = rotation
-  const finalRot = targetRotation(props.winnerSegmentIdx, segCount.value)
+  const finalRot = targetRotation(props.winnerSegmentIdx, segCount.value) + pointerOffset.value
   const start = performance.now()
   const dur = props.durationMs
 
@@ -285,6 +308,10 @@ watch(
   },
 )
 watch(() => props.segments, () => rebuild(), { deep: true })
+// Segment colors live in the pre-rendered bitmap, so changing them rebuilds it.
+watch(() => props.colors, () => rebuild(), { deep: true })
+// The pointer is painted per-frame, so a color/position change just repaints.
+watch(() => [props.pointerColor, props.pointerPosition], () => renderFrame())
 watch(
   () => `${geom.value.cw}x${geom.value.ch}x${Math.round(geom.value.r)}`,
   () => rebuild(),
@@ -297,7 +324,11 @@ watch(
   <div v-if="giant" class="wheel-giant-viewport">
     <canvas ref="canvasRef" class="wheel-canvas-giant" />
     <!-- Pointer fixed at the top-center of the screen. -->
-    <div class="giant-pointer" aria-hidden="true" />
+    <div
+      class="giant-pointer"
+      :style="{ borderTopColor: pointerColor }"
+      aria-hidden="true"
+    />
   </div>
 
   <!-- Normal wheel. -->

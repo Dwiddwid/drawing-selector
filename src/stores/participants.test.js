@@ -599,4 +599,88 @@ describe('participant store', () => {
       expect(store.filteredCandidates[0].firstName).toBe('Grace')
     })
   })
+
+  describe('resetWinners modes', () => {
+    it("'return' moves winners back into the candidate pool", () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.winners = [person('Alan', 'Turing')]
+
+      store.resetWinners('return')
+
+      expect(store.winners).toHaveLength(0)
+      expect(store.candidates.map((c) => c.firstName)).toContain('Alan')
+      expect(store.lastResetWinners.mode).toBe('return')
+    })
+
+    it("'eliminate' clears winners without returning them to the pool", () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.winners = [person('Alan', 'Turing')]
+
+      store.resetWinners('eliminate')
+
+      expect(store.winners).toHaveLength(0)
+      expect(store.candidates).toHaveLength(1)
+      expect(store.candidates.map((c) => c.firstName)).not.toContain('Alan')
+      expect(store.lastResetWinners.mode).toBe('eliminate')
+    })
+
+    it('defaults to return mode', () => {
+      const store = useParticipantStore()
+      store.winners = [person('Alan', 'Turing')]
+      store.resetWinners()
+      expect(store.candidates.map((c) => c.firstName)).toContain('Alan')
+    })
+
+    it('undo restores winners for both modes', () => {
+      const store = useParticipantStore()
+      // eliminate
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.winners = [person('Alan', 'Turing')]
+      store.resetWinners('eliminate')
+      expect(store.undoResetWinners()).toBe(true)
+      expect(store.winners.map((w) => w.firstName)).toEqual(['Alan'])
+      expect(store.candidates).toHaveLength(1) // pool untouched by eliminate-undo
+
+      // return
+      store.resetWinners('return')
+      expect(store.candidates.map((c) => c.firstName)).toContain('Alan')
+      store.undoResetWinners()
+      expect(store.winners.map((w) => w.firstName)).toEqual(['Alan'])
+      // Alan pulled back out of the pool on undo.
+      expect(store.candidates.map((c) => c.firstName)).not.toContain('Alan')
+    })
+  })
+
+  describe('removeCandidates (batch)', () => {
+    it('removes all matching ids in one persist', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace'),
+        person('Alan', 'Turing'),
+        person('Grace', 'Hopper'),
+      ]
+      store.removeCandidates(['Ada-Lovelace', 'Grace-Hopper'])
+      expect(store.candidates.map((c) => c.firstName)).toEqual(['Alan'])
+      expect(JSON.parse(localStorage.getItem('candidates'))).toHaveLength(1)
+    })
+
+    it('accepts a Set and ignores unknown ids', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.removeCandidates(new Set(['nope']))
+      expect(store.candidates).toHaveLength(1)
+    })
+
+    it('does nothing for an empty selection', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.persistCandidates()
+      localStorage.removeItem('candidates')
+      store.removeCandidates([])
+      // No persist should have happened.
+      expect(localStorage.getItem('candidates')).toBeNull()
+    })
+  })
 })

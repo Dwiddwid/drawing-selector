@@ -3,11 +3,13 @@ import { RouterView } from 'vue-router'
 import { useTheme } from 'vuetify'
 import { useParticipantStore } from './stores/participants.js'
 import { useSettingsStore } from './stores/settings.js'
-import { onMounted, watch } from 'vue'
+import { onMounted, onBeforeUnmount, watch } from 'vue'
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
 const theme = useTheme()
+
+const BUTTON_RADIUS = { pill: '9999px', rounded: '20px', square: '4px' }
 
 // Push the user's theme settings into Vuetify's live theme colors and into
 // CSS variables consumed by the global styles / drawing screen.
@@ -25,6 +27,12 @@ function applyTheme(t) {
   root.style.setProperty('--app-accent', t.accent)
   root.style.setProperty('--app-background', t.background)
   root.style.setProperty('--app-surface', t.surface)
+  // Optional overrides fall back to primary when unset.
+  root.style.setProperty('--app-heading', t.headingColor || t.primary)
+  root.style.setProperty('--app-winner-name', t.winnerNameColor || t.primary)
+  root.style.setProperty('--app-btn-radius', BUTTON_RADIUS[t.buttonRoundness] || BUTTON_RADIUS.rounded)
+  root.style.setProperty('--app-card-opacity', t.cardOpacity ?? 1)
+  root.style.setProperty('--app-card-blur', `${t.cardBlur ?? 0}px`)
 
   if (t.backgroundStyle === 'image' && t.backgroundImage) {
     root.style.setProperty('--app-bg-image', `url("${t.backgroundImage}")`)
@@ -36,10 +44,27 @@ function applyTheme(t) {
   document.body.classList.toggle('app-bg-plain', t.backgroundStyle !== 'waves')
 }
 
+// Keep a projector window (multi-display mode) in sync with the admin tab. The
+// `storage` event fires in *other* same-origin tabs when localStorage changes,
+// and also propagates between file:// tabs of the same document — so reloading
+// settings here covers both web and the portable Offline Edition without a
+// dedicated channel. settings.persist() runs on every change, so updates are
+// effectively immediate.
+function onStorage(event) {
+  if (event.key !== 'settings') return
+  settings.loadFromStorage()
+  applyTheme(settings.theme)
+}
+
 onMounted(() => {
   store.loadFromStorage()
   settings.loadFromStorage()
   applyTheme(settings.theme)
+  window.addEventListener('storage', onStorage)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('storage', onStorage)
 })
 
 watch(
@@ -80,6 +105,6 @@ a {
 }
 
 .v-btn {
-  border-radius: 20px; /* Rounded buttons for a softer look */
+  border-radius: var(--app-btn-radius, 20px); /* roundness is theme-configurable */
 }
 </style>

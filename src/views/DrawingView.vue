@@ -17,6 +17,22 @@ const isWheel = computed(
 )
 const isGiantWheel = computed(() => settings.animationStyle === 'wheel-giant')
 
+// Spinner appearance, derived from settings with theme-based fallbacks.
+const segmentColors = computed(() => {
+  const custom = settings.spinner.segmentColors
+  if (Array.isArray(custom) && custom.length) return custom
+  const t = settings.theme
+  return [t.primary, t.secondary, t.accent, '#ffcf48', '#7ed957', '#b39ddb', '#f48fb1', '#4dd0e1']
+})
+const pointerColor = computed(() => settings.spinner.pointerColor || settings.theme.accent)
+const pointerPosition = computed(() => settings.spinner.pointerPosition || 'top')
+const wheelSize = computed(() => Math.round(480 * (settings.spinner.wheelScale ?? 1)))
+
+// The title shows only when there's text and the operator hasn't hidden it.
+const showTitle = computed(
+  () => settings.theme.showEventTitle && !!settings.theme.eventTitle,
+)
+
 // Wheel-spin state. The visual wheel needs to know the winner before the
 // pointer can land on them, so for that style we pre-pick from the store,
 // render the wheel, and commit only after the rotation eases to a stop.
@@ -95,7 +111,7 @@ watch(
         alt="Event logo"
         class="event-logo mb-4"
       />
-      <h1 v-if="settings.theme.eventTitle && !isGiantWheel" class="event-title mb-4">
+      <h1 v-if="showTitle && !isGiantWheel" class="event-title mb-4">
         {{ settings.theme.eventTitle }}
       </h1>
 
@@ -108,6 +124,8 @@ watch(
           :segments="wheelSegments"
           :winner-segment-idx="wheelWinnerSegmentIdx"
           :active="wheelActive"
+          :colors="segmentColors"
+          :pointer-color="pointerColor"
           giant
           @done="onWheelDone"
         />
@@ -120,7 +138,7 @@ watch(
               alt="Event logo"
               class="event-logo mb-2"
             />
-            <h1 v-if="settings.theme.eventTitle" class="event-title giant-text">
+            <h1 v-if="showTitle" class="event-title giant-text">
               {{ settings.theme.eventTitle }}
             </h1>
             <h1 v-if="store.spinning" class="font-weight-thin giant-text giant-headline">
@@ -184,6 +202,10 @@ watch(
             :segments="wheelSegments"
             :winner-segment-idx="wheelWinnerSegmentIdx"
             :active="wheelActive"
+            :colors="segmentColors"
+            :pointer-color="pointerColor"
+            :pointer-position="pointerPosition"
+            :size="wheelSize"
             @done="onWheelDone"
           />
 
@@ -299,7 +321,7 @@ button {
   object-fit: contain;
 }
 .event-title {
-  color: rgb(var(--v-theme-primary));
+  color: var(--app-heading, rgb(var(--v-theme-primary)));
 }
 /* Classic / reel card text. The winner name is the headline; detail rows are
    smaller. Both are bounded with clamp() (keyed off vmin, not vw) so they stay
@@ -380,8 +402,8 @@ button {
   width: max-content;
   max-width: min(85vw, 64vmin);
   z-index: 10;
-  background: rgba(var(--v-theme-surface), 0.96);
-  backdrop-filter: blur(2px);
+  background: rgba(var(--v-theme-surface), var(--app-card-opacity, 0.96));
+  backdrop-filter: blur(max(2px, var(--app-card-blur, 2px)));
 }
 .overlay-content {
   text-align: center;
@@ -419,7 +441,8 @@ button {
 }
 
 .winner-card {
-  background: rgb(var(--v-theme-surface));
+  background: rgba(var(--v-theme-surface), var(--app-card-opacity, 1));
+  backdrop-filter: blur(var(--app-card-blur, 0px));
 }
 /* Keep the classic/reel reveal card within the viewport so long names wrap
    inside it instead of overflowing. */
@@ -432,9 +455,11 @@ button {
   background-color: rgb(var(--v-theme-primary));
 }
 
-.winner-card h1,
+.winner-card h1 {
+  color: var(--app-heading, rgb(var(--v-theme-primary)));
+}
 .winner-card h2 {
-  color: rgb(var(--v-theme-primary));
+  color: var(--app-winner-name, rgb(var(--v-theme-primary)));
 }
 
 /* Reel style — vertical sliding reveal during the spin. */

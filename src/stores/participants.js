@@ -117,14 +117,18 @@ export const useParticipantStore = defineStore('participantStore', {
       localStorage.removeItem('candidates')
       localStorage.removeItem('filters')
     },
-    resetWinners() {
-      // Snapshot winners for undo, then move them back into the candidate pool
-      // so they can be re-drawn if the operator confirms the reset was intentional.
-      // (This differs from a simple clear — winners are not lost until a new draw
-      // commits or the undo window closes.)
-      this.lastResetWinners = this.winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } }))
-      // Add winners back to candidates
-      this.candidates.push(...this.lastResetWinners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } })))
+    // Clear the winners list. `mode` decides what happens to those people:
+    //   'return'    — move them back into the candidate pool so they can be
+    //                 re-drawn (the historical behavior).
+    //   'eliminate' — drop them entirely; they are out of the running.
+    // Either way the prior winners are snapshotted (with the mode) so the
+    // operator can undo a mistaken click.
+    resetWinners(mode = 'return') {
+      const winners = this.winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } }))
+      this.lastResetWinners = { winners, mode }
+      if (mode === 'return') {
+        this.candidates.push(...winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } })))
+      }
       this.winners = []
       this.selected = null
       this.persistCandidates()
@@ -141,10 +145,14 @@ export const useParticipantStore = defineStore('participantStore', {
     },
     undoResetWinners() {
       if (!this.lastResetWinners) return false
-      // Remove the winners from candidates (by id)
-      const winnerIds = new Set(this.lastResetWinners.map((w) => w.id))
-      this.candidates = this.candidates.filter((c) => !winnerIds.has(c.id))
-      this.winners = this.lastResetWinners
+      const { winners, mode } = this.lastResetWinners
+      // For 'return' resets the winners were pushed back into the pool, so pull
+      // them out again by id. For 'eliminate' resets the pool was untouched.
+      if (mode === 'return') {
+        const winnerIds = new Set(winners.map((w) => w.id))
+        this.candidates = this.candidates.filter((c) => !winnerIds.has(c.id))
+      }
+      this.winners = winners
       this.lastResetWinners = null
       this.persistCandidates()
       this.persistWinners()
@@ -164,6 +172,15 @@ export const useParticipantStore = defineStore('participantStore', {
         this.candidates.splice(idx, 1)
         this.persistCandidates()
       }
+    },
+    // Batch removal for the admin's bulk-delete: filters out all matching ids in
+    // one pass with a single persist.
+    removeCandidates(ids) {
+      const drop = ids instanceof Set ? ids : new Set(ids)
+      if (drop.size === 0) return
+      const before = this.candidates.length
+      this.candidates = this.candidates.filter((c) => !drop.has(c.id))
+      if (this.candidates.length !== before) this.persistCandidates()
     },
     updateCandidate(id, patch) {
       const c = this.candidates.find((c) => c.id === id)

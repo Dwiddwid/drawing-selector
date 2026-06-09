@@ -20,6 +20,21 @@ export function defaultSettings() {
       backgroundImage: null, // data URL when backgroundStyle === 'image'
       logo: null, // data URL shown above the drawing card
       eventTitle: "It's drawing time!",
+      showEventTitle: true, // toggle the title's display on the drawing screen
+      // Optional overrides; null = fall back to `primary`.
+      headingColor: null, // event title & headings
+      winnerNameColor: null, // revealed winner's name
+      buttonRoundness: 'rounded', // 'pill' | 'rounded' | 'square'
+      cardOpacity: 1, // winner card surface opacity (0.5–1)
+      cardBlur: 0, // winner card backdrop blur in px
+    },
+    // Spinning-wheel appearance. null values derive from the theme so existing
+    // installs keep the original look until customized.
+    spinner: {
+      segmentColors: null, // null = derive from theme; else string[] of hex
+      pointerColor: null, // null = theme.accent
+      pointerPosition: 'top', // 'top' | 'right' | 'bottom' | 'left' (standard wheel)
+      wheelScale: 1, // 0.6–1.4 multiplier on the 480px base size
     },
     winnerDisplay: {
       nameFormat: 'first-last', // 'first-last' | 'first' | 'last-first'
@@ -52,6 +67,8 @@ function readJSON(key, fallback) {
 }
 
 const ANIMATION_STYLES = ['classic', 'wheel', 'wheel-giant', 'reel']
+const POINTER_POSITIONS = ['top', 'right', 'bottom', 'left']
+const BUTTON_ROUNDNESS = ['pill', 'rounded', 'square']
 
 // Deep-merge stored settings over the defaults so settings saved by an older
 // version (missing newly-added fields) still load cleanly.
@@ -72,6 +89,7 @@ export function mergeSettings(stored) {
       ? stored.animationStyle
       : base.animationStyle,
     celebration: { ...base.celebration, ...(stored.celebration || {}) },
+    spinner: { ...base.spinner, ...(stored.spinner || {}) },
   }
 }
 
@@ -85,6 +103,7 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.winnerDisplay = merged.winnerDisplay
       this.animationStyle = merged.animationStyle
       this.celebration = merged.celebration
+      this.spinner = merged.spinner
     },
     persist() {
       localStorage.setItem(
@@ -95,6 +114,7 @@ export const useSettingsStore = defineStore('settingsStore', {
           winnerDisplay: this.winnerDisplay,
           animationStyle: this.animationStyle,
           celebration: this.celebration,
+          spinner: this.spinner,
         }),
       )
     },
@@ -112,6 +132,24 @@ export const useSettingsStore = defineStore('settingsStore', {
     },
     updateTheme(partial) {
       this.theme = { ...this.theme, ...partial }
+      this.persist()
+    },
+    updateSpinner(partial) {
+      const next = { ...this.spinner, ...partial }
+      // Guard the enumerated/clamped fields against bad payloads.
+      if (!POINTER_POSITIONS.includes(next.pointerPosition)) {
+        next.pointerPosition = this.spinner.pointerPosition
+      }
+      if (typeof next.wheelScale === 'number') {
+        next.wheelScale = Math.min(1.4, Math.max(0.6, next.wheelScale))
+      }
+      this.spinner = next
+      this.persist()
+    },
+    // Apply a preset's color block onto the theme, leaving non-color theme
+    // fields (font, background, logo, title) untouched.
+    applyPreset(colors) {
+      this.theme = { ...this.theme, ...colors }
       this.persist()
     },
     updateWinnerDisplay(partial) {
@@ -162,6 +200,7 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.winnerDisplay = fresh.winnerDisplay
       this.animationStyle = fresh.animationStyle
       this.celebration = fresh.celebration
+      this.spinner = fresh.spinner
       localStorage.removeItem(SETTINGS_KEY)
     },
   },

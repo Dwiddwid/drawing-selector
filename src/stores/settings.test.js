@@ -154,4 +154,72 @@ describe('settings store', () => {
       expect(reloaded.celebration.sound).toBe(true)
     })
   })
+
+  describe('new theme + spinner fields', () => {
+    it('defaults the new fields', () => {
+      const d = defaultSettings()
+      expect(d.theme.showEventTitle).toBe(true)
+      expect(d.theme.headingColor).toBeNull()
+      expect(d.theme.winnerNameColor).toBeNull()
+      expect(d.theme.buttonRoundness).toBe('rounded')
+      expect(d.theme.cardOpacity).toBe(1)
+      expect(d.theme.cardBlur).toBe(0)
+      expect(d.spinner).toEqual({
+        segmentColors: null,
+        pointerColor: null,
+        pointerPosition: 'top',
+        wheelScale: 1,
+      })
+    })
+
+    it('mergeSettings backfills new fields for an old payload', () => {
+      const merged = mergeSettings({ theme: { primary: '#000000' } })
+      expect(merged.theme.showEventTitle).toBe(true)
+      expect(merged.theme.buttonRoundness).toBe('rounded')
+      expect(merged.spinner.pointerPosition).toBe('top')
+    })
+
+    it('updateSpinner clamps wheelScale and guards pointerPosition', () => {
+      const settings = useSettingsStore()
+      settings.updateSpinner({ wheelScale: 99, pointerPosition: 'sideways' })
+      expect(settings.spinner.wheelScale).toBe(1.4)
+      expect(settings.spinner.pointerPosition).toBe('top')
+      settings.updateSpinner({ wheelScale: 0.1, pointerPosition: 'left' })
+      expect(settings.spinner.wheelScale).toBe(0.6)
+      expect(settings.spinner.pointerPosition).toBe('left')
+    })
+
+    it('applyPreset merges a color block and persists', () => {
+      const settings = useSettingsStore()
+      const before = settings.theme.fontFamily
+      settings.applyPreset({ primary: '#123456', accent: '#abcdef' })
+      expect(settings.theme.primary).toBe('#123456')
+      expect(settings.theme.accent).toBe('#abcdef')
+      // Non-color theme fields are untouched.
+      expect(settings.theme.fontFamily).toBe(before)
+
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.theme.primary).toBe('#123456')
+    })
+
+    it('persists and reloads spinner settings', () => {
+      const settings = useSettingsStore()
+      settings.updateSpinner({ pointerColor: '#ff00ff', segmentColors: ['#111111'] })
+
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.spinner.pointerColor).toBe('#ff00ff')
+      expect(reloaded.spinner.segmentColors).toEqual(['#111111'])
+    })
+
+    it('resetSettings restores spinner defaults', () => {
+      const settings = useSettingsStore()
+      settings.updateSpinner({ pointerColor: '#ff00ff' })
+      settings.resetSettings()
+      expect(settings.spinner.pointerColor).toBeNull()
+    })
+  })
 })
