@@ -31,6 +31,11 @@ export function useStoreSync() {
     apply(msg.scope)
   })
 
+  // flush: 'post' ensures this runs after Vue has finished updating the DOM
+  // and all synchronous store mutations in the same tick (e.g. commitAt setting
+  // spinning = false and commitSelection writing localStorage) have completed,
+  // closing the race window where a sync arriving just after spinning → false
+  // could be applied before commitAt runs.
   watch(
     () => store.spinning,
     (spinning) => {
@@ -38,6 +43,7 @@ export function useStoreSync() {
       for (const scope of pending) apply(scope)
       pending.clear()
     },
+    { flush: 'post' },
   )
 
   return unsubscribe

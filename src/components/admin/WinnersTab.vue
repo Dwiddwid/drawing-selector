@@ -11,9 +11,27 @@ const store = useParticipantStore()
 const search = ref('')
 const matchedWinners = computed(() => filterParticipants(store.winners, search.value))
 
+const resetDialog = ref(false)
+
 function exportWinners() {
   const ok = downloadWinnersCsv(store.winners)
   if (!ok) emit('notify', 'No winners to export yet.', 'warning')
+}
+
+function confirmReset(mode) {
+  resetDialog.value = false
+  const count = store.winners.length
+  store.resetWinners(mode)
+  if (count > 0) {
+    emit(
+      'notify',
+      mode === 'return'
+        ? `Returned ${count} winner${count === 1 ? '' : 's'} to the candidate pool.`
+        : `Removed ${count} winner${count === 1 ? '' : 's'}.`,
+      'info',
+      () => store.undoResetWinners(),
+    )
+  }
 }
 </script>
 
@@ -46,9 +64,44 @@ function exportWinners() {
         </v-list>
       </template>
 
-      <v-btn class="mt-2" prepend-icon="fas fa-download" @click="exportWinners">
-        Download winners CSV
-      </v-btn>
+      <div class="d-flex flex-wrap ga-2 mt-2">
+        <v-btn prepend-icon="fas fa-download" @click="exportWinners">
+          Download winners CSV
+        </v-btn>
+        <v-btn
+          prepend-icon="fas fa-rotate-left"
+          color="error"
+          variant="tonal"
+          :disabled="store.winners.length === 0"
+          @click="resetDialog = true"
+        >
+          Reset winners
+        </v-btn>
+      </div>
     </template>
   </v-card>
+
+  <v-dialog v-model="resetDialog" max-width="460">
+    <v-card>
+      <v-card-title>Reset winners?</v-card-title>
+      <v-card-text>
+        What should happen to the
+        <strong>{{ store.winners.length }}</strong>
+        past winner{{ store.winners.length === 1 ? '' : 's' }}?
+        <em>Return to pool</em> puts them back into the draw;
+        <em>Remove permanently</em> deletes them. Either way you'll get a short window to undo
+        from the toast.
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="resetDialog = false">Cancel</v-btn>
+        <v-btn color="primary" variant="elevated" @click="confirmReset('return')">
+          Return to pool
+        </v-btn>
+        <v-btn color="error" variant="elevated" @click="confirmReset('remove')">
+          Remove permanently
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>

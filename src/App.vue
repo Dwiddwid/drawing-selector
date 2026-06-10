@@ -36,10 +36,17 @@ function applyTheme(t) {
   root.style.setProperty('--app-winner-card-text', t.winnerCardText || t.primary)
 
   if (t.backgroundStyle === 'image' && t.backgroundImage) {
-    root.style.setProperty('--app-bg-image', `url("${t.backgroundImage}")`)
+    // Strip quotes and backslashes so a malformed data URL from a restored JSON
+    // backup cannot break out of the CSS string and inject arbitrary properties.
+    const safe = t.backgroundImage.replace(/["\\]/g, '')
+    root.style.setProperty('--app-bg-image', `url("${safe}")`)
   } else if (t.backgroundStyle === 'gradient' && t.backgroundGradient) {
     const g = t.backgroundGradient
-    root.style.setProperty('--app-bg-image', `linear-gradient(${g.angle}deg, ${g.from}, ${g.to})`)
+    // Gradient values come from Vuetify color pickers (hex only) so no escaping
+    // is needed, but strip anything outside a-f, 0-9, #, comma, space, deg.
+    const safeTo = g.to.replace(/[^a-fA-F0-9#]/g, '')
+    const safeFrom = g.from.replace(/[^a-fA-F0-9#]/g, '')
+    root.style.setProperty('--app-bg-image', `linear-gradient(${Number(g.angle)}deg, ${safeFrom}, ${safeTo})`)
   } else {
     root.style.setProperty('--app-bg-image', 'none')
   }
