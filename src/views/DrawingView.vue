@@ -1,11 +1,11 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
 import { formatWinnerName, visibleWinnerFields } from '../utils/winnerDisplay.js'
-import { createTriggerChannel } from '../utils/platform.js'
+import { onChannelMessage } from '../utils/sync.js'
 import { celebrate } from '../utils/celebration.js'
-import { buildWheelSegments } from '../utils/wheel.js'
+import { buildWheelSegments, wheelColorsFromTheme } from '../utils/wheel.js'
 import WheelSpinner from '../components/WheelSpinner.vue'
 
 const store = useParticipantStore()
@@ -59,11 +59,41 @@ function onWheelDone() {
   }
 }
 
-// Cross-tab trigger for multi-display mode. Uses BroadcastChannel on the web and
-// a localStorage-event fallback in the portable (file://) Offline Edition, so a
-// remote draw works in both. Still falls back to this screen's own GO! button.
-const bc = createTriggerChannel()
-bc?.onMessage(() => startDraw())
+// Cross-tab trigger for multi-display mode (sync messages are handled globally
+// by useStoreSync in App.vue). Works on the web (BroadcastChannel) and in the
+// portable file:// Offline Edition (localStorage-event fallback). Still falls
+// back to this screen's own GO! button.
+const unsubscribe = onChannelMessage((msg) => {
+  if (msg.type === 'trigger') startDraw()
+})
+onBeforeUnmount(() => unsubscribe())
+
+// Branding (logo + event title) is hidden while a draw is running so it never
+// overlays the spinning wheel; it returns alongside the winner card.
+const introVisible = computed(() => !store.spinning && !wheelActive.value)
+const titleEnabled = computed(
+  () => settings.theme.showEventTitle && Boolean(settings.theme.eventTitle),
+)
+
+// Wheel appearance from the spinner settings. Colors and pointer apply to both
+// wheel styles; size/position/offsets only make sense for the standard wheel
+// (the giant wheel is full-viewport by design).
+const wheelColors = computed(() => {
+  const s = settings.spinner
+  if (s.colorMode === 'custom' && s.customColors.length) return s.customColors
+  if (s.colorMode === 'theme') return wheelColorsFromTheme(settings.theme)
+  return undefined // component default palette
+})
+const wheelStageStyle = computed(() => {
+  const s = settings.spinner
+  const style = {}
+  if ((s.offsetX || 0) !== 0 || (s.offsetY || 0) !== 0) {
+    style.transform = `translate(${s.offsetX || 0}px, ${s.offsetY || 0}px)`
+  }
+  if (s.position === 'left') style.alignSelf = 'flex-start'
+  else if (s.position === 'right') style.alignSelf = 'flex-end'
+  return style
+})
 
 const winnerName = computed(() =>
   store.selected ? formatWinnerName(store.selected, settings.winnerDisplay.nameFormat) : '',
@@ -90,12 +120,12 @@ watch(
   <v-main>
     <v-container fluid fill-height class="text-center d-flex flex-column align-center justify-center fill-height">
       <img
-        v-if="settings.theme.logo && !isGiantWheel"
+        v-if="settings.theme.logo && !isGiantWheel && introVisible"
         :src="settings.theme.logo"
         alt="Event logo"
         class="event-logo mb-4"
       />
-      <h1 v-if="settings.theme.eventTitle && !isGiantWheel" class="event-title mb-4">
+      <h1 v-if="titleEnabled && !isGiantWheel && introVisible" class="event-title mb-4">
         {{ settings.theme.eventTitle }}
       </h1>
 
@@ -108,6 +138,9 @@ watch(
           :segments="wheelSegments"
           :winner-segment-idx="wheelWinnerSegmentIdx"
           :active="wheelActive"
+          :colors="wheelColors"
+          :pointer-color="settings.spinner.pointerColor"
+          :giant-zoom="settings.spinner.giantZoom"
           giant
           @done="onWheelDone"
         />
@@ -115,12 +148,12 @@ watch(
         <div class="giant-overlay">
           <div class="giant-top">
             <img
-              v-if="settings.theme.logo"
+              v-if="settings.theme.logo && introVisible"
               :src="settings.theme.logo"
               alt="Event logo"
               class="event-logo mb-2"
             />
-            <h1 v-if="settings.theme.eventTitle" class="event-title giant-text">
+            <h1 v-if="titleEnabled && introVisible" class="event-title giant-text">
               {{ settings.theme.eventTitle }}
             </h1>
             <h1 v-if="store.spinning" class="font-weight-thin giant-text giant-headline">
@@ -178,12 +211,15 @@ watch(
           Ready to start drawing!
         </h1>
 
-        <div class="wheel-stage">
+        <div class="wheel-stage" :style="wheelStageStyle">
           <WheelSpinner
             v-if="wheelSegments.length"
             :segments="wheelSegments"
             :winner-segment-idx="wheelWinnerSegmentIdx"
             :active="wheelActive"
+            :colors="wheelColors"
+            :pointer-color="settings.spinner.pointerColor"
+            :size="settings.spinner.size"
             @done="onWheelDone"
           />
 
@@ -299,7 +335,7 @@ button {
   object-fit: contain;
 }
 .event-title {
-  color: rgb(var(--v-theme-primary));
+  color: var(--app-headline, rgb(var(--v-theme-primary)));
 }
 /* Classic / reel card text. The winner name is the headline; detail rows are
    smaller. Both are bounded with clamp() (keyed off vmin, not vw) so they stay
@@ -380,7 +416,11 @@ button {
   width: max-content;
   max-width: min(85vw, 64vmin);
   z-index: 10;
-  background: rgba(var(--v-theme-surface), 0.96);
+  background: color-mix(
+    in srgb,
+    var(--app-winner-card-bg, rgb(var(--v-theme-surface))) 96%,
+    transparent
+  );
   backdrop-filter: blur(2px);
 }
 .overlay-content {
@@ -419,7 +459,8 @@ button {
 }
 
 .winner-card {
-  background: rgb(var(--v-theme-surface));
+  background: var(--app-winner-card-bg, rgb(var(--v-theme-surface)));
+  color: var(--app-winner-card-text, rgb(var(--v-theme-primary)));
 }
 /* Keep the classic/reel reveal card within the viewport so long names wrap
    inside it instead of overflowing. */
@@ -434,7 +475,7 @@ button {
 
 .winner-card h1,
 .winner-card h2 {
-  color: rgb(var(--v-theme-primary));
+  color: var(--app-winner-card-text, rgb(var(--v-theme-primary)));
 }
 
 /* Reel style — vertical sliding reveal during the spin. */

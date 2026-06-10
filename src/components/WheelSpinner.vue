@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
-import { targetRotation } from '../utils/wheel.js'
+import { targetRotation, DEFAULT_WHEEL_COLORS } from '../utils/wheel.js'
 
 const props = defineProps({
   segments: { type: Array, required: true }, // [{ label, candidateIdx }]
@@ -12,19 +12,15 @@ const props = defineProps({
   // area. Only the top arc shows, so names scroll on/off as it spins and every
   // entry can appear on the wheel even with a large pool.
   giant: { type: Boolean, default: false },
+  // Giant mode only: wheel-center depth below the screen in viewport heights.
+  // Larger = bigger radius = bigger segment labels. Clamped to [2, 6] — below 2
+  // the rim can miss the bottom corners of wide screens.
+  giantZoom: { type: Number, default: 2 },
   colors: {
     type: Array,
-    default: () => [
-      '#1e3d59',
-      '#1c8c9a',
-      '#ff6f61',
-      '#ffcf48',
-      '#7ed957',
-      '#b39ddb',
-      '#f48fb1',
-      '#4dd0e1',
-    ],
+    default: () => [...DEFAULT_WHEEL_COLORS],
   },
+  pointerColor: { type: String, default: '#ff6f61' },
 })
 const emit = defineEmits(['done'])
 
@@ -75,13 +71,16 @@ const geom = computed(() => {
     const cw = vw.value
     const ch = vh.value
     const cx = cw / 2
-    // Push the center 100 % of the viewport height below the visible area so
+    // Push the center `giantZoom` viewport heights below the visible area so
     // the hub stays well offscreen regardless of aspect ratio. The radius is
     // then set so the topmost point of the rim lands exactly GIANT_TOP_GAP px
-    // below the top of the viewport (cy - r = GIANT_TOP_GAP).
-    // At cy = 2·ch the radius is r ≈ 2·ch, which easily clears the bottom
-    // corners: corner distance = √((cw/2)² + ch²) ≤ √(ch² + ch²) ≈ 1.41·ch.
-    const cy = ch * 2
+    // below the top of the viewport (cy - r = GIANT_TOP_GAP). Deeper centers
+    // (larger zoom) mean a larger radius, so each segment's visible arc — and
+    // its label — grows with the zoom; that's what keeps very large pools
+    // legible. At the minimum cy = 2·ch the radius r ≈ 2·ch already clears the
+    // bottom corners: corner distance = √((cw/2)² + ch²) ≤ √(ch² + ch²) ≈ 1.41·ch.
+    const zoom = Math.min(6, Math.max(2, props.giantZoom || 2))
+    const cy = ch * zoom
     const r = cy - GIANT_TOP_GAP
     return { cw, ch, cx, cy, r }
   }
@@ -180,7 +179,7 @@ function renderFrame() {
     ctx.lineTo(cx + 16, 6)
     ctx.lineTo(cx, 38)
     ctx.closePath()
-    ctx.fillStyle = '#ff6f61'
+    ctx.fillStyle = props.pointerColor
     ctx.fill()
     ctx.strokeStyle = '#ffffff'
     ctx.lineWidth = 3
@@ -219,7 +218,7 @@ function drawRadialLabel(ctx, cx, cy, r, start, segAngle, n, label) {
 function drawGiantLabel(ctx, cx, cy, r, start, segAngle, label) {
   const mid = start + segAngle / 2
   const arcThickness = r * segAngle
-  const fontSize = Math.max(14, Math.min(48, arcThickness * 0.7))
+  const fontSize = Math.max(14, Math.min(72, arcThickness * 0.7))
   ctx.save()
   ctx.translate(cx, cy)
   ctx.rotate(mid) // radial orientation (name points toward the center)
@@ -285,6 +284,8 @@ watch(
   },
 )
 watch(() => props.segments, () => rebuild(), { deep: true })
+// Segment/pointer colors can change live from the admin's spinner settings.
+watch([() => props.colors, () => props.pointerColor], () => rebuild(), { deep: true })
 watch(
   () => `${geom.value.cw}x${geom.value.ch}x${Math.round(geom.value.r)}`,
   () => rebuild(),
@@ -297,7 +298,7 @@ watch(
   <div v-if="giant" class="wheel-giant-viewport">
     <canvas ref="canvasRef" class="wheel-canvas-giant" />
     <!-- Pointer fixed at the top-center of the screen. -->
-    <div class="giant-pointer" aria-hidden="true" />
+    <div class="giant-pointer" :style="{ borderTopColor: pointerColor }" aria-hidden="true" />
   </div>
 
   <!-- Normal wheel. -->
@@ -313,8 +314,10 @@ watch(
   justify-content: center;
 }
 .wheel-canvas {
-  max-width: 70vmin;
-  max-height: 70vmin;
+  /* Cap just under the viewport so the size slider has real range — the old
+     70vmin clamp silently shrank anything larger, making big sizes useless. */
+  max-width: 95vmin;
+  max-height: 95vmin;
   filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.25));
 }
 

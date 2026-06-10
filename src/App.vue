@@ -3,11 +3,15 @@ import { RouterView } from 'vue-router'
 import { useTheme } from 'vuetify'
 import { useParticipantStore } from './stores/participants.js'
 import { useSettingsStore } from './stores/settings.js'
+import { useStoreSync } from './composables/useStoreSync.js'
 import { onMounted, watch } from 'vue'
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
 const theme = useTheme()
+
+// Live multi-display sync: reload stores when another tab persists a change.
+useStoreSync()
 
 // Push the user's theme settings into Vuetify's live theme colors and into
 // CSS variables consumed by the global styles / drawing screen.
@@ -25,9 +29,24 @@ function applyTheme(t) {
   root.style.setProperty('--app-accent', t.accent)
   root.style.setProperty('--app-background', t.background)
   root.style.setProperty('--app-surface', t.surface)
+  // Optional overrides — null falls back to the palette-derived defaults.
+  root.style.setProperty('--app-text', t.textColor || t.primary)
+  root.style.setProperty('--app-headline', t.headlineColor || t.primary)
+  root.style.setProperty('--app-winner-card-bg', t.winnerCardBg || t.surface)
+  root.style.setProperty('--app-winner-card-text', t.winnerCardText || t.primary)
 
   if (t.backgroundStyle === 'image' && t.backgroundImage) {
-    root.style.setProperty('--app-bg-image', `url("${t.backgroundImage}")`)
+    // Strip quotes and backslashes so a malformed data URL from a restored JSON
+    // backup cannot break out of the CSS string and inject arbitrary properties.
+    const safe = t.backgroundImage.replace(/["\\]/g, '')
+    root.style.setProperty('--app-bg-image', `url("${safe}")`)
+  } else if (t.backgroundStyle === 'gradient' && t.backgroundGradient) {
+    const g = t.backgroundGradient
+    // Gradient values come from Vuetify color pickers (hex only) so no escaping
+    // is needed, but strip anything outside a-f, 0-9, #, comma, space, deg.
+    const safeTo = g.to.replace(/[^a-fA-F0-9#]/g, '')
+    const safeFrom = g.from.replace(/[^a-fA-F0-9#]/g, '')
+    root.style.setProperty('--app-bg-image', `linear-gradient(${Number(g.angle)}deg, ${safeFrom}, ${safeTo})`)
   } else {
     root.style.setProperty('--app-bg-image', 'none')
   }
@@ -60,7 +79,7 @@ watch(
 body {
   font-family: var(--app-font, 'Poppins'), sans-serif;
   background-color: var(--app-background, #e0f7fa);
-  color: var(--app-primary, #1e3d59);
+  color: var(--app-text, var(--app-primary, #1e3d59));
 }
 
 /* Plain background modes hide the animated wave SVG and use a solid color or

@@ -8,7 +8,39 @@
 // representative subset (always including the winner) so segment labels stay
 // legible.
 
+import { lighten, darken } from './color.js'
+
 export const MAX_WHEEL_SEGMENTS = 24
+
+// The original segment palette, shared with the settings store so "custom"
+// colors start from the familiar look.
+export const DEFAULT_WHEEL_COLORS = [
+  '#1e3d59',
+  '#1c8c9a',
+  '#ff6f61',
+  '#ffcf48',
+  '#7ed957',
+  '#b39ddb',
+  '#f48fb1',
+  '#4dd0e1',
+]
+
+// Derive an 8-color segment palette from the event theme. Alternates darker
+// and lighter variants of primary/secondary/accent so adjacent segments always
+// contrast even when the base colors are similar.
+export function wheelColorsFromTheme(theme) {
+  const { primary, secondary, accent } = theme
+  return [
+    primary,
+    lighten(secondary, 0.08),
+    accent,
+    lighten(primary, 0.22),
+    darken(secondary, 0.12),
+    lighten(accent, 0.18),
+    darken(primary, 0.1),
+    darken(accent, 0.14),
+  ]
+}
 
 // Returns { segments: [{ label, candidateIdx }], winnerSegmentIdx }.
 // `candidates` is the full pool; `winnerIdx` is the index in `candidates` of

@@ -4,11 +4,7 @@ import Title from '../components/Title.vue'
 import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
 import { ref } from 'vue'
-import { createTriggerChannel } from '../utils/platform.js'
-
-// Cross-tab trigger for multi-display mode. Works on the web (BroadcastChannel)
-// and in the portable file:// build (localStorage-event fallback).
-const bc = createTriggerChannel()
+import { postTrigger } from '../utils/sync.js'
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
@@ -19,7 +15,10 @@ function saveMultiDisplay() {
 }
 
 function selectWinner() {
-  bc?.postMessage('Go!')
+  // Cross-tab trigger for multi-display mode. Works on the web
+  // (BroadcastChannel) and in the portable file:// build (localStorage-event
+  // fallback).
+  postTrigger()
 }
 </script>
 
