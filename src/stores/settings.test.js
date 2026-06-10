@@ -48,6 +48,76 @@ describe('settings store', () => {
     expect(mergeSettings('nope')).toEqual(defaultSettings())
   })
 
+  it('mergeSettings fills spinner + gradient defaults for an older stored blob', () => {
+    // Settings persisted by a version that predates spinner/gradient/overrides.
+    const merged = mergeSettings({
+      isPro: true,
+      theme: { primary: '#123456', backgroundStyle: 'solid' },
+      winnerDisplay: { nameFormat: 'first' },
+      animationStyle: 'wheel',
+      celebration: { confetti: false },
+    })
+    expect(merged.theme.primary).toBe('#123456')
+    expect(merged.theme.backgroundGradient).toEqual(defaultSettings().theme.backgroundGradient)
+    expect(merged.theme.showEventTitle).toBe(true)
+    expect(merged.theme.textColor).toBeNull()
+    expect(merged.spinner).toEqual(defaultSettings().spinner)
+  })
+
+  it('mergeSettings rejects invalid backgroundStyle, spinner colorMode and position', () => {
+    const merged = mergeSettings({
+      theme: { backgroundStyle: 'plaid' },
+      spinner: { colorMode: 'disco', position: 'upside-down', customColors: 'nope' },
+    })
+    expect(merged.theme.backgroundStyle).toBe('waves')
+    expect(merged.spinner.colorMode).toBe('default')
+    expect(merged.spinner.position).toBe('center')
+    expect(merged.spinner.customColors).toEqual(defaultSettings().spinner.customColors)
+  })
+
+  it('mergeSettings clamps giantZoom into [2, 6] and defaults non-numbers', () => {
+    expect(mergeSettings({ spinner: { giantZoom: 4 } }).spinner.giantZoom).toBe(4)
+    expect(mergeSettings({ spinner: { giantZoom: 1 } }).spinner.giantZoom).toBe(2)
+    expect(mergeSettings({ spinner: { giantZoom: 99 } }).spinner.giantZoom).toBe(6)
+    expect(mergeSettings({ spinner: { giantZoom: 'huge' } }).spinner.giantZoom).toBe(2)
+    expect(mergeSettings({ spinner: { giantZoom: NaN } }).spinner.giantZoom).toBe(2)
+    // Older blobs without the field get the default.
+    expect(mergeSettings({ spinner: { size: 480 } }).spinner.giantZoom).toBe(2)
+  })
+
+  it('mergeSettings round-trips a gradient background', () => {
+    const merged = mergeSettings({
+      theme: {
+        backgroundStyle: 'gradient',
+        backgroundGradient: { from: '#000000', to: '#ffffff', angle: 45 },
+      },
+    })
+    expect(merged.theme.backgroundStyle).toBe('gradient')
+    expect(merged.theme.backgroundGradient).toEqual({ from: '#000000', to: '#ffffff', angle: 45 })
+  })
+
+  it('updateSpinner patches and persists spinner settings round-trip', () => {
+    const settings = useSettingsStore()
+    settings.updateSpinner({ colorMode: 'theme', size: 600, position: 'left', offsetX: 40 })
+
+    setActivePinia(createPinia())
+    const reloaded = useSettingsStore()
+    reloaded.loadFromStorage()
+    expect(reloaded.spinner.colorMode).toBe('theme')
+    expect(reloaded.spinner.size).toBe(600)
+    expect(reloaded.spinner.position).toBe('left')
+    expect(reloaded.spinner.offsetX).toBe(40)
+    // Untouched fields keep their defaults.
+    expect(reloaded.spinner.pointerColor).toBe('#ff6f61')
+  })
+
+  it('resetSettings restores spinner defaults too', () => {
+    const settings = useSettingsStore()
+    settings.updateSpinner({ size: 700, pointerColor: '#000000' })
+    settings.resetSettings()
+    expect(settings.spinner).toEqual(defaultSettings().spinner)
+  })
+
   it('syncFields adds new keys and drops removed ones, keeping order/labels', () => {
     const settings = useSettingsStore()
     settings.syncFields(['Grade', 'Bus Route'])

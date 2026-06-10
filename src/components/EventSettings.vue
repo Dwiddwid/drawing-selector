@@ -1,8 +1,10 @@
 <script setup>
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
 import { collectExtraKeys } from '../utils/winnerDisplay.js'
+import { THEME_PRESETS } from '../utils/themePresets.js'
+import { themeFromImageFile } from '../utils/themeFromImage.js'
 
 const emit = defineEmits(['notify'])
 
@@ -13,6 +15,7 @@ const fontOptions = ['Poppins', 'Inter', 'Arial', 'Georgia', 'Comic Sans MS', 'C
 const backgroundStyles = [
   { title: 'Animated waves', value: 'waves' },
   { title: 'Solid color', value: 'solid' },
+  { title: 'Gradient', value: 'gradient' },
   { title: 'Custom image', value: 'image' },
 ]
 const nameFormats = [
@@ -26,6 +29,83 @@ const animationStyles = [
   { title: 'Giant wheel (names scroll past)', value: 'wheel-giant' },
   { title: 'Vertical reel', value: 'reel' },
 ]
+
+// Theme color pickers. Optional entries are overrides that fall back to
+// another palette color when unset (null) — exactly how the drawing screen
+// resolves them.
+const colorFields = [
+  { key: 'primary', label: 'Primary' },
+  { key: 'secondary', label: 'Secondary' },
+  { key: 'accent', label: 'Accent' },
+  { key: 'background', label: 'Background' },
+  { key: 'surface', label: 'Surface' },
+  { key: 'textColor', label: 'Text', fallback: 'primary', optional: true },
+  { key: 'headlineColor', label: 'Headline', fallback: 'primary', optional: true },
+  { key: 'winnerCardBg', label: 'Winner card', fallback: 'surface', optional: true },
+  { key: 'winnerCardText', label: 'Winner card text', fallback: 'primary', optional: true },
+]
+
+function colorValue(field) {
+  return settings.theme[field.key] ?? settings.theme[field.fallback]
+}
+
+const spinnerColorModes = [
+  { title: 'Default palette', value: 'default' },
+  { title: 'Match theme', value: 'theme' },
+  { title: 'Custom colors', value: 'custom' },
+]
+const spinnerPositions = [
+  { title: 'Left', value: 'left' },
+  { title: 'Center', value: 'center' },
+  { title: 'Right', value: 'right' },
+]
+const isWheelStyle = computed(
+  () => settings.animationStyle === 'wheel' || settings.animationStyle === 'wheel-giant',
+)
+
+function setCustomColor(idx, value) {
+  const customColors = [...settings.spinner.customColors]
+  customColors[idx] = value
+  settings.updateSpinner({ customColors })
+}
+
+function addCustomColor() {
+  if (settings.spinner.customColors.length >= 8) return
+  settings.updateSpinner({ customColors: [...settings.spinner.customColors, '#888888'] })
+}
+
+function removeCustomColor(idx) {
+  if (settings.spinner.customColors.length <= 2) return
+  settings.updateSpinner({
+    customColors: settings.spinner.customColors.filter((_, i) => i !== idx),
+  })
+}
+
+function applyPreset(preset) {
+  settings.updateTheme(preset.theme)
+  emit('notify', `Applied the "${preset.name}" theme.`, 'success')
+}
+
+// Theme-from-image: extract a palette, preview it, apply only on confirm.
+const generated = ref(null) // { theme, swatches } | null
+
+async function generateFromImage(fileInput) {
+  const file = fileInput?.files?.[0]
+  if (!file) return
+  try {
+    generated.value = await themeFromImageFile(file)
+  } catch (err) {
+    generated.value = null
+    emit('notify', err.message || 'Could not analyze that image.', 'error')
+  }
+}
+
+function applyGenerated() {
+  if (!generated.value) return
+  settings.updateTheme(generated.value.theme)
+  generated.value = null
+  emit('notify', 'Applied the generated theme.', 'success')
+}
 
 // Keep the configurable field list in sync with whatever columns exist in the
 // current participant pool (candidates + winners).
@@ -83,19 +163,81 @@ function resetAll() {
       <v-expansion-panel-text>
         <div class="pro-gate">
           <div :class="{ 'pro-locked': !settings.isPro }">
+            <div class="text-caption mb-1">Preset themes</div>
+            <div class="d-flex flex-wrap ga-2 mb-4">
+              <v-btn
+                v-for="p in THEME_PRESETS"
+                :key="p.id"
+                size="small"
+                variant="tonal"
+                @click="applyPreset(p)"
+              >
+                <span class="preset-swatches mr-2">
+                  <span
+                    v-for="(c, i) in [p.theme.primary, p.theme.secondary, p.theme.accent]"
+                    :key="i"
+                    class="preset-dot"
+                    :style="{ background: c }"
+                  />
+                </span>
+                {{ p.name }}
+              </v-btn>
+            </div>
+
+            <v-file-input
+              label="Generate theme from image"
+              accept="image/*"
+              density="compact"
+              prepend-icon="fas fa-wand-magic-sparkles"
+              @change="generateFromImage($event.target)"
+            />
+            <div v-if="generated" class="mb-4">
+              <div class="d-flex align-center ga-2 mb-2">
+                <span
+                  v-for="(c, i) in generated.swatches"
+                  :key="i"
+                  class="generated-swatch"
+                  :style="{ background: c }"
+                />
+              </div>
+              <v-btn size="small" color="primary" class="mr-2" @click="applyGenerated">
+                Apply generated theme
+              </v-btn>
+              <v-btn size="small" variant="text" @click="generated = null">Discard</v-btn>
+            </div>
+
             <v-text-field
               :model-value="settings.theme.eventTitle"
               @update:model-value="settings.updateTheme({ eventTitle: $event })"
               label="Event title"
               density="compact"
             />
+            <v-switch
+              :model-value="settings.theme.showEventTitle"
+              @update:model-value="settings.updateTheme({ showEventTitle: $event })"
+              color="primary"
+              hide-details
+              label="Show event title on the drawing screen"
+              class="mb-2"
+            />
 
             <div class="d-flex flex-wrap ga-4 mb-4">
-              <div v-for="c in ['primary', 'secondary', 'accent', 'background', 'surface']" :key="c">
-                <div class="text-caption text-capitalize mb-1">{{ c }}</div>
+              <div v-for="f in colorFields" :key="f.key">
+                <div class="text-caption mb-1 d-flex align-center">
+                  {{ f.label }}
+                  <v-btn
+                    v-if="f.optional && settings.theme[f.key]"
+                    size="x-small"
+                    variant="text"
+                    class="ml-1"
+                    @click="settings.updateTheme({ [f.key]: null })"
+                  >
+                    Auto
+                  </v-btn>
+                </div>
                 <v-color-picker
-                  :model-value="settings.theme[c]"
-                  @update:model-value="settings.updateTheme({ [c]: $event })"
+                  :model-value="colorValue(f)"
+                  @update:model-value="settings.updateTheme({ [f.key]: $event })"
                   mode="hexa"
                   hide-inputs
                   :modes="['hexa']"
@@ -103,6 +245,10 @@ function resetAll() {
                 />
               </div>
             </div>
+            <p class="text-body-2 text-medium-emphasis mb-3">
+              Text, headline and winner-card colors follow the main palette automatically — pick
+              one to override it; "Auto" returns to following the palette.
+            </p>
 
             <v-select
               :model-value="settings.theme.fontFamily"
@@ -125,6 +271,58 @@ function resetAll() {
                 :value="b.value"
               />
             </v-radio-group>
+
+            <div v-if="settings.theme.backgroundStyle === 'gradient'" class="mb-4">
+              <div class="d-flex flex-wrap ga-4 mb-2">
+                <div>
+                  <div class="text-caption mb-1">Gradient from</div>
+                  <v-color-picker
+                    :model-value="settings.theme.backgroundGradient.from"
+                    @update:model-value="
+                      settings.updateTheme({
+                        backgroundGradient: { ...settings.theme.backgroundGradient, from: $event },
+                      })
+                    "
+                    mode="hexa"
+                    hide-inputs
+                    :modes="['hexa']"
+                    width="180"
+                  />
+                </div>
+                <div>
+                  <div class="text-caption mb-1">Gradient to</div>
+                  <v-color-picker
+                    :model-value="settings.theme.backgroundGradient.to"
+                    @update:model-value="
+                      settings.updateTheme({
+                        backgroundGradient: { ...settings.theme.backgroundGradient, to: $event },
+                      })
+                    "
+                    mode="hexa"
+                    hide-inputs
+                    :modes="['hexa']"
+                    width="180"
+                  />
+                </div>
+              </div>
+              <v-slider
+                :model-value="settings.theme.backgroundGradient.angle"
+                @update:model-value="
+                  settings.updateTheme({
+                    backgroundGradient: {
+                      ...settings.theme.backgroundGradient,
+                      angle: Math.round($event),
+                    },
+                  })
+                "
+                label="Angle"
+                :min="0"
+                :max="360"
+                :step="5"
+                thumb-label
+                hide-details
+              />
+            </div>
 
             <v-file-input
               v-if="settings.theme.backgroundStyle === 'image'"
@@ -258,6 +456,142 @@ function resetAll() {
               label="Reveal animation"
               density="compact"
             />
+
+            <template v-if="isWheelStyle">
+              <v-divider class="my-3" />
+              <div class="text-subtitle-2 mb-2">Spinner</div>
+
+              <v-select
+                :model-value="settings.spinner.colorMode"
+                @update:model-value="settings.updateSpinner({ colorMode: $event })"
+                :items="spinnerColorModes"
+                label="Segment colors"
+                density="compact"
+              />
+
+              <div v-if="settings.spinner.colorMode === 'custom'" class="d-flex flex-wrap align-center ga-2 mb-3">
+                <span
+                  v-for="(c, i) in settings.spinner.customColors"
+                  :key="i"
+                  class="custom-color"
+                >
+                  <input
+                    type="color"
+                    :value="c"
+                    class="color-input"
+                    :aria-label="`Segment color ${i + 1}`"
+                    @input="setCustomColor(i, $event.target.value)"
+                  />
+                  <v-btn
+                    icon
+                    size="x-small"
+                    variant="text"
+                    :disabled="settings.spinner.customColors.length <= 2"
+                    aria-label="Remove color"
+                    @click="removeCustomColor(i)"
+                  >
+                    <font-awesome-icon icon="fas fa-xmark" />
+                  </v-btn>
+                </span>
+                <v-btn
+                  size="x-small"
+                  variant="tonal"
+                  :disabled="settings.spinner.customColors.length >= 8"
+                  @click="addCustomColor"
+                >
+                  Add color
+                </v-btn>
+              </div>
+
+              <div class="d-flex align-center ga-2 mb-3">
+                <span class="text-body-2">Pointer color</span>
+                <input
+                  type="color"
+                  :value="settings.spinner.pointerColor"
+                  class="color-input"
+                  aria-label="Pointer color"
+                  @input="settings.updateSpinner({ pointerColor: $event.target.value })"
+                />
+              </div>
+
+              <template v-if="settings.animationStyle === 'wheel-giant'">
+                <v-slider
+                  :model-value="settings.spinner.giantZoom"
+                  @update:model-value="settings.updateSpinner({ giantZoom: $event })"
+                  label="Wheel zoom"
+                  :min="2"
+                  :max="6"
+                  :step="0.25"
+                  thumb-label
+                  hide-details
+                  class="mb-1"
+                />
+                <p class="text-body-2 text-medium-emphasis">
+                  Zoom enlarges the wheel beyond the screen so each name gets bigger — useful for
+                  big pools (hundreds of participants). Higher zoom also means fewer names visible
+                  at once as they scroll past.
+                </p>
+              </template>
+
+              <template v-if="settings.animationStyle === 'wheel'">
+                <p class="text-body-2 text-medium-emphasis mb-2">
+                  Standard wheel size, position, and offsets apply only to the spinning wheel
+                  display — the giant wheel is always full-screen.
+                </p>
+                <v-slider
+                  :model-value="settings.spinner.size"
+                  @update:model-value="settings.updateSpinner({ size: Math.round($event) })"
+                  label="Wheel size"
+                  :min="280"
+                  :max="1200"
+                  :step="10"
+                  thumb-label
+                  hide-details
+                  class="mb-2"
+                />
+                <v-radio-group
+                  :model-value="settings.spinner.position"
+                  @update:model-value="settings.updateSpinner({ position: $event })"
+                  inline
+                  label="Position"
+                  hide-details
+                  class="mb-2"
+                >
+                  <v-radio
+                    v-for="p in spinnerPositions"
+                    :key="p.value"
+                    :label="p.title"
+                    :value="p.value"
+                  />
+                </v-radio-group>
+                <v-slider
+                  :model-value="settings.spinner.offsetX"
+                  @update:model-value="settings.updateSpinner({ offsetX: Math.round($event) })"
+                  label="Fine-tune X offset"
+                  :min="-300"
+                  :max="300"
+                  :step="5"
+                  thumb-label
+                  hide-details
+                />
+                <v-slider
+                  :model-value="settings.spinner.offsetY"
+                  @update:model-value="settings.updateSpinner({ offsetY: Math.round($event) })"
+                  label="Fine-tune Y offset"
+                  :min="-200"
+                  :max="200"
+                  :step="5"
+                  thumb-label
+                  hide-details
+                  class="mb-1"
+                />
+                <p class="text-body-2 text-medium-emphasis">
+                  Position anchors the wheel (left, center, or right); offsets fine-tune it from
+                  the anchor point in pixels.
+                </p>
+              </template>
+            </template>
+
             <v-switch
               :model-value="settings.celebration.confetti"
               @update:model-value="settings.updateCelebration({ confetti: $event })"
@@ -303,5 +637,35 @@ function resetAll() {
   justify-content: center;
   font-weight: 600;
   color: rgb(var(--v-theme-primary));
+}
+.preset-swatches {
+  display: inline-flex;
+  gap: 2px;
+}
+.preset-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+.generated-swatch {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+.custom-color {
+  display: inline-flex;
+  align-items: center;
+}
+.color-input {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
 }
 </style>

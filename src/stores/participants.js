@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { participantKey, uid } from '../utils/csv.js'
+import { broadcastSync } from '../utils/sync.js'
 
 function readJSON(key, fallback) {
   const raw = localStorage.getItem(key)
@@ -73,16 +74,20 @@ export const useParticipantStore = defineStore('participantStore', {
     },
     persistCandidates() {
       localStorage.setItem('candidates', JSON.stringify(this.candidates))
+      broadcastSync('participants')
     },
     persistFilters() {
       localStorage.setItem('filters', JSON.stringify(this.filters))
+      broadcastSync('participants')
     },
     persistWinners() {
       localStorage.setItem('winners', JSON.stringify(this.winners))
+      broadcastSync('participants')
     },
     setMultiDisplayMode(value) {
       this.useMultiDisplayMode = value
       localStorage.setItem('useMultiDisplayMode', JSON.stringify(value))
+      broadcastSync('participants')
     },
     // Replace the candidate pool, excluding anyone who has already won.
     importParticipants(list) {
@@ -116,15 +121,18 @@ export const useParticipantStore = defineStore('participantStore', {
       this.filters = []
       localStorage.removeItem('candidates')
       localStorage.removeItem('filters')
+      broadcastSync('participants')
     },
-    resetWinners() {
-      // Snapshot winners for undo, then move them back into the candidate pool
-      // so they can be re-drawn if the operator confirms the reset was intentional.
-      // (This differs from a simple clear — winners are not lost until a new draw
-      // commits or the undo window closes.)
-      this.lastResetWinners = this.winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } }))
-      // Add winners back to candidates
-      this.candidates.push(...this.lastResetWinners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } })))
+    // Reset the winners list. `mode` is the operator's choice from the dialog:
+    //   'return' — move winners back into the candidate pool for re-drawing
+    //   'remove' — clear them entirely (candidates untouched)
+    // Either way a snapshot is kept so the reset can be undone from the toast.
+    resetWinners(mode = 'return') {
+      const winners = this.winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } }))
+      this.lastResetWinners = { mode, winners }
+      if (mode === 'return') {
+        this.candidates.push(...winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } })))
+      }
       this.winners = []
       this.selected = null
       this.persistCandidates()
@@ -141,10 +149,13 @@ export const useParticipantStore = defineStore('participantStore', {
     },
     undoResetWinners() {
       if (!this.lastResetWinners) return false
-      // Remove the winners from candidates (by id)
-      const winnerIds = new Set(this.lastResetWinners.map((w) => w.id))
-      this.candidates = this.candidates.filter((c) => !winnerIds.has(c.id))
-      this.winners = this.lastResetWinners
+      const { mode, winners } = this.lastResetWinners
+      if (mode === 'return') {
+        // The reset pushed the winners into candidates — pull them back out.
+        const winnerIds = new Set(winners.map((w) => w.id))
+        this.candidates = this.candidates.filter((c) => !winnerIds.has(c.id))
+      }
+      this.winners = winners
       this.lastResetWinners = null
       this.persistCandidates()
       this.persistWinners()

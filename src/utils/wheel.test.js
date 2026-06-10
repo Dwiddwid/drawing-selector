@@ -1,9 +1,49 @@
 import { describe, it, expect } from 'vitest'
-import { buildWheelSegments, targetRotation, MAX_WHEEL_SEGMENTS } from './wheel.js'
+import {
+  buildWheelSegments,
+  targetRotation,
+  MAX_WHEEL_SEGMENTS,
+  DEFAULT_WHEEL_COLORS,
+  wheelColorsFromTheme,
+} from './wheel.js'
+import { isHexColor } from './color.js'
 
 function person(firstName, lastName) {
   return { id: `${firstName}-${lastName}`, firstName, lastName, extras: {} }
 }
+
+describe('wheelColorsFromTheme', () => {
+  const theme = { primary: '#1e3d59', secondary: '#1c8c9a', accent: '#ff6f61' }
+
+  it('returns 8 valid hex colors', () => {
+    const colors = wheelColorsFromTheme(theme)
+    expect(colors).toHaveLength(8)
+    for (const c of colors) expect(isHexColor(c)).toBe(true)
+  })
+
+  it('no two adjacent segments share a color (including the wrap-around)', () => {
+    const colors = wheelColorsFromTheme(theme)
+    for (let i = 0; i < colors.length; i++) {
+      expect(colors[i]).not.toBe(colors[(i + 1) % colors.length])
+    }
+  })
+
+  it('keeps adjacent variants distinct even for a monochrome theme', () => {
+    const colors = wheelColorsFromTheme({
+      primary: '#336699',
+      secondary: '#336699',
+      accent: '#336699',
+    })
+    for (let i = 0; i < colors.length; i++) {
+      expect(colors[i]).not.toBe(colors[(i + 1) % colors.length])
+    }
+  })
+
+  it('exports the original default palette for the settings store', () => {
+    expect(DEFAULT_WHEEL_COLORS).toHaveLength(8)
+    for (const c of DEFAULT_WHEEL_COLORS) expect(isHexColor(c)).toBe(true)
+  })
+})
 
 describe('buildWheelSegments', () => {
   it('returns empty results for an empty pool', () => {

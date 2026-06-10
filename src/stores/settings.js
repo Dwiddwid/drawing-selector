@@ -1,4 +1,6 @@
 import { defineStore } from 'pinia'
+import { DEFAULT_WHEEL_COLORS } from '../utils/wheel.js'
+import { broadcastSync } from '../utils/sync.js'
 
 const SETTINGS_KEY = 'settings'
 
@@ -16,10 +18,19 @@ export function defaultSettings() {
       background: '#e0f7fa', // Light Aqua
       surface: '#ffffff', // White cards
       fontFamily: 'Poppins',
-      backgroundStyle: 'waves', // 'waves' | 'solid' | 'image'
+      backgroundStyle: 'waves', // 'waves' | 'solid' | 'image' | 'gradient'
       backgroundImage: null, // data URL when backgroundStyle === 'image'
+      backgroundGradient: { from: '#1e3d59', to: '#1c8c9a', angle: 160 },
       logo: null, // data URL shown above the drawing card
       eventTitle: "It's drawing time!",
+      showEventTitle: true,
+      // Optional overrides. null = derive from the palette above (textColor and
+      // headlineColor fall back to primary; winnerCardBg to surface;
+      // winnerCardText to primary) — which is the original look.
+      textColor: null,
+      headlineColor: null,
+      winnerCardBg: null,
+      winnerCardText: null,
     },
     winnerDisplay: {
       nameFormat: 'first-last', // 'first-last' | 'first' | 'last-first'
@@ -38,6 +49,22 @@ export function defaultSettings() {
       confetti: true,
       sound: true,
     },
+    // Wheel-spinner appearance. Size/position/offsets apply to the standard
+    // wheel only — the giant wheel is full-viewport by design.
+    spinner: {
+      colorMode: 'default', // 'default' | 'theme' (derived from palette) | 'custom'
+      customColors: [...DEFAULT_WHEEL_COLORS],
+      pointerColor: '#ff6f61',
+      size: 480, // px, 280–1200
+      position: 'center', // 'center' | 'left' | 'right'
+      offsetX: 0, // px fine-tune from the anchored position
+      offsetY: 0,
+      // Giant wheel only: how far the wheel's center sits below the screen
+      // (multiples of the viewport height). Larger = bigger radius = bigger
+      // names — the lever that keeps 400-participant pools legible. 2 is the
+      // original look; the minimum that still guarantees full corner coverage.
+      giantZoom: 2, // 2–6
+    },
   }
 }
 
@@ -52,15 +79,40 @@ function readJSON(key, fallback) {
 }
 
 const ANIMATION_STYLES = ['classic', 'wheel', 'wheel-giant', 'reel']
+const BACKGROUND_STYLES = ['waves', 'solid', 'image', 'gradient']
+const SPINNER_COLOR_MODES = ['default', 'theme', 'custom']
+const SPINNER_POSITIONS = ['center', 'left', 'right']
 
 // Deep-merge stored settings over the defaults so settings saved by an older
 // version (missing newly-added fields) still load cleanly.
 export function mergeSettings(stored) {
   const base = defaultSettings()
   if (!stored || typeof stored !== 'object') return base
+  const theme = {
+    ...base.theme,
+    ...(stored.theme || {}),
+    backgroundGradient: {
+      ...base.theme.backgroundGradient,
+      ...(stored.theme?.backgroundGradient || {}),
+    },
+  }
+  if (!BACKGROUND_STYLES.includes(theme.backgroundStyle)) {
+    theme.backgroundStyle = base.theme.backgroundStyle
+  }
+  const spinner = { ...base.spinner, ...(stored.spinner || {}) }
+  if (!SPINNER_COLOR_MODES.includes(spinner.colorMode)) spinner.colorMode = base.spinner.colorMode
+  if (!SPINNER_POSITIONS.includes(spinner.position)) spinner.position = base.spinner.position
+  if (!Array.isArray(spinner.customColors) || spinner.customColors.length === 0) {
+    spinner.customColors = [...base.spinner.customColors]
+  }
+  if (typeof spinner.giantZoom !== 'number' || Number.isNaN(spinner.giantZoom)) {
+    spinner.giantZoom = base.spinner.giantZoom
+  } else {
+    spinner.giantZoom = Math.min(6, Math.max(2, spinner.giantZoom))
+  }
   return {
     isPro: typeof stored.isPro === 'boolean' ? stored.isPro : base.isPro,
-    theme: { ...base.theme, ...(stored.theme || {}) },
+    theme,
     winnerDisplay: {
       ...base.winnerDisplay,
       ...(stored.winnerDisplay || {}),
@@ -72,6 +124,7 @@ export function mergeSettings(stored) {
       ? stored.animationStyle
       : base.animationStyle,
     celebration: { ...base.celebration, ...(stored.celebration || {}) },
+    spinner,
   }
 }
 
@@ -85,18 +138,27 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.winnerDisplay = merged.winnerDisplay
       this.animationStyle = merged.animationStyle
       this.celebration = merged.celebration
+      this.spinner = merged.spinner
     },
     persist() {
-      localStorage.setItem(
-        SETTINGS_KEY,
-        JSON.stringify({
-          isPro: this.isPro,
-          theme: this.theme,
-          winnerDisplay: this.winnerDisplay,
-          animationStyle: this.animationStyle,
-          celebration: this.celebration,
-        }),
-      )
+      try {
+        localStorage.setItem(
+          SETTINGS_KEY,
+          JSON.stringify({
+            isPro: this.isPro,
+            theme: this.theme,
+            winnerDisplay: this.winnerDisplay,
+            animationStyle: this.animationStyle,
+            celebration: this.celebration,
+            spinner: this.spinner,
+          }),
+        )
+      } catch {
+        // Quota exceeded (large background image / logo data URLs). The
+        // in-memory settings still apply for this session.
+        return
+      }
+      broadcastSync('settings')
     },
     setAnimationStyle(value) {
       this.animationStyle = ANIMATION_STYLES.includes(value) ? value : 'classic'
@@ -116,6 +178,10 @@ export const useSettingsStore = defineStore('settingsStore', {
     },
     updateWinnerDisplay(partial) {
       this.winnerDisplay = { ...this.winnerDisplay, ...partial }
+      this.persist()
+    },
+    updateSpinner(partial) {
+      this.spinner = { ...this.spinner, ...partial }
       this.persist()
     },
     // Ensure winnerDisplay.fields contains an entry for every available key,
@@ -162,7 +228,9 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.winnerDisplay = fresh.winnerDisplay
       this.animationStyle = fresh.animationStyle
       this.celebration = fresh.celebration
+      this.spinner = fresh.spinner
       localStorage.removeItem(SETTINGS_KEY)
+      broadcastSync('settings')
     },
   },
 })

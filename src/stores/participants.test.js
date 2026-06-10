@@ -558,6 +558,39 @@ describe('participant store', () => {
       expect(store.winners[0].firstName).toBe('Ada')
     })
 
+    it("resetWinners('return') moves winners back into the candidate pool", () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Grace', 'Hopper')]
+      store.winners = [person('Ada', 'Lovelace')]
+
+      store.resetWinners('return')
+      expect(store.winners).toHaveLength(0)
+      expect(store.candidates).toHaveLength(2)
+
+      // Undo pulls them back out of candidates and restores winners.
+      expect(store.undoResetWinners()).toBe(true)
+      expect(store.winners.map((w) => w.firstName)).toEqual(['Ada'])
+      expect(store.candidates.map((c) => c.firstName)).toEqual(['Grace'])
+    })
+
+    it("resetWinners('remove') clears winners without touching candidates", () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Grace', 'Hopper')]
+      store.winners = [person('Ada', 'Lovelace')]
+
+      store.resetWinners('remove')
+      expect(store.winners).toHaveLength(0)
+      expect(store.candidates).toHaveLength(1)
+      expect(JSON.parse(localStorage.getItem('winners'))).toHaveLength(0)
+
+      // Undo restores winners exactly; candidates stay untouched.
+      expect(store.undoResetWinners()).toBe(true)
+      expect(store.winners.map((w) => w.firstName)).toEqual(['Ada'])
+      expect(store.candidates).toHaveLength(1)
+      // Undo is single-use.
+      expect(store.undoResetWinners()).toBe(false)
+    })
+
     it('importParticipants clears any pending candidates-undo', () => {
       const store = useParticipantStore()
       store.candidates = [person('Ada', 'Lovelace')]
