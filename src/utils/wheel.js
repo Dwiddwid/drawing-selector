@@ -45,15 +45,21 @@ export function wheelColorsFromTheme(theme) {
 // Returns { segments: [{ label, candidateIdx }], winnerSegmentIdx }.
 // `candidates` is the full pool; `winnerIdx` is the index in `candidates` of
 // the pre-chosen winner. `random` is injectable for deterministic tests.
+// `label` resolves a candidate's display text; the caller passes one built from
+// the winnerDisplay name config. Defaults to joining all field values.
+function defaultLabel(c) {
+  return Object.values(c.fields ?? {}).join(' ').trim() || '(no name)'
+}
+
 export function buildWheelSegments(
   candidates,
   winnerIdx,
-  { max = MAX_WHEEL_SEGMENTS, random = Math.random } = {},
+  { max = MAX_WHEEL_SEGMENTS, random = Math.random, label: labelFn = defaultLabel } = {},
 ) {
   if (!Array.isArray(candidates) || candidates.length === 0 || winnerIdx < 0) {
     return { segments: [], winnerSegmentIdx: -1 }
   }
-  const label = (c) => `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() || '(no name)'
+  const label = (c) => labelFn(c) || '(no name)'
 
   if (candidates.length <= max) {
     return {

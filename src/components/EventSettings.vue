@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
-import { collectExtraKeys } from '../utils/winnerDisplay.js'
+import { collectFieldKeys } from '../utils/winnerDisplay.js'
 import { THEME_PRESETS } from '../utils/themePresets.js'
 import { themeFromImageFile } from '../utils/themeFromImage.js'
 
@@ -17,11 +17,6 @@ const backgroundStyles = [
   { title: 'Solid color', value: 'solid' },
   { title: 'Gradient', value: 'gradient' },
   { title: 'Custom image', value: 'image' },
-]
-const nameFormats = [
-  { title: 'First Last', value: 'first-last' },
-  { title: 'First only', value: 'first' },
-  { title: 'Last, First', value: 'last-first' },
 ]
 const animationStyles = [
   { title: 'Classic slot machine', value: 'classic' },
@@ -116,7 +111,7 @@ function applyGenerated() {
 
 // Keep the configurable field list in sync with whatever columns exist in the
 // current participant pool (candidates + winners).
-const availableKeys = computed(() => collectExtraKeys(store.getParticipants))
+const availableKeys = computed(() => collectFieldKeys(store.getParticipants))
 watch(
   availableKeys,
   (keys) => settings.syncFields(keys),
@@ -370,11 +365,24 @@ function resetAll() {
         <div class="pro-gate">
           <div :class="{ 'pro-locked': !settings.isPro }">
             <v-select
-              :model-value="settings.winnerDisplay.nameFormat"
-              @update:model-value="settings.updateWinnerDisplay({ nameFormat: $event })"
-              :items="nameFormats"
-              label="Name format"
+              :model-value="settings.winnerDisplay.nameKeys"
+              @update:model-value="settings.setNameKeys($event)"
+              :items="availableKeys"
+              label="Name fields (the headline)"
+              hint="Choose which fields make up the big name shown on the drawing screen."
+              persistent-hint
+              multiple
+              chips
               density="compact"
+              class="mb-2"
+            />
+            <v-text-field
+              :model-value="settings.winnerDisplay.nameSeparator"
+              @update:model-value="settings.setNameSeparator($event)"
+              label="Name separator"
+              hint="Joins multiple name fields, e.g. a space or ', '."
+              density="compact"
+              class="mb-2"
             />
             <v-switch
               :model-value="settings.winnerDisplay.showLabels"
@@ -386,8 +394,8 @@ function resetAll() {
             />
 
             <p v-if="settings.winnerDisplay.fields.length === 0" class="text-body-2 text-medium-emphasis">
-              Import participants with extra columns (Grade, Bus Route, …) to choose which fields
-              appear on the drawing screen.
+              Import participants to choose which fields appear on the drawing screen and edit
+              their labels.
             </p>
 
             <v-list density="compact">

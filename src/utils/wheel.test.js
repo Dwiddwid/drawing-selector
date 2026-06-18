@@ -11,7 +11,10 @@ import {
 import { isHexColor } from './color.js'
 
 function person(firstName, lastName) {
-  return { id: `${firstName}-${lastName}`, firstName, lastName, extras: {} }
+  const fields = {}
+  if (firstName) fields['First Name'] = firstName
+  if (lastName) fields['Last Name'] = lastName
+  return { id: `${firstName}-${lastName}`, fields }
 }
 
 describe('wheelColorsFromTheme', () => {
@@ -117,10 +120,16 @@ describe('buildWheelSegments', () => {
     expect(segments.map((s) => s.candidateIdx)).toEqual(pool.map((_, i) => i))
   })
 
-  it('falls back to "(no name)" when both first and last are empty', () => {
-    const pool = [{ id: 'x', firstName: '', lastName: '', extras: {} }]
+  it('falls back to "(no name)" when there are no field values', () => {
+    const pool = [{ id: 'x', fields: {} }]
     const { segments } = buildWheelSegments(pool, 0)
     expect(segments[0].label).toBe('(no name)')
+  })
+
+  it('accepts a custom label function', () => {
+    const pool = [{ id: 'r', fields: { Restaurant: 'Joe Diner', City: 'NYC' } }]
+    const { segments } = buildWheelSegments(pool, 0, { label: (c) => c.fields.Restaurant })
+    expect(segments[0].label).toBe('Joe Diner')
   })
 })
 

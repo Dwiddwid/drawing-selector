@@ -1,12 +1,15 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useParticipantStore } from '../../stores/participants.js'
+import { useSettingsStore } from '../../stores/settings.js'
 import { filterParticipants } from '../../utils/search.js'
+import { formatWinnerName } from '../../utils/winnerDisplay.js'
 import { downloadWinnersCsv } from '../../utils/export.js'
 
 const emit = defineEmits(['notify'])
 
 const store = useParticipantStore()
+const settings = useSettingsStore()
 
 const search = ref('')
 const matchedWinners = computed(() => filterParticipants(store.winners, search.value))
@@ -58,7 +61,7 @@ function confirmReset(mode) {
           <v-list-item
             v-for="participant in matchedWinners"
             :key="participant.id"
-            :title="participant.firstName + ' ' + participant.lastName"
+            :title="formatWinnerName(participant, settings.winnerDisplay) || '(no name)'"
             :value="participant"
           />
         </v-list>

@@ -7,7 +7,10 @@ import { useParticipantStore } from '../stores/participants.js'
 import { createTriggerChannel } from './platform.js'
 
 function person(firstName, lastName) {
-  return { id: `${firstName}-${lastName}`, firstName, lastName, extras: {} }
+  return {
+    id: `${firstName}-${lastName}`,
+    fields: { 'First Name': firstName, 'Last Name': lastName },
+  }
 }
 
 describe('multi-display trigger end-to-end (BroadcastChannel)', () => {

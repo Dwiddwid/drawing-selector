@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { participantKey, uid } from '../utils/csv.js'
+import { participantKey, uid, migrateParticipants } from '../utils/csv.js'
 import { broadcastSync } from '../utils/sync.js'
 
 function readJSON(key, fallback) {
@@ -54,14 +54,16 @@ export const useParticipantStore = defineStore('participantStore', {
     filteredCandidates(state) {
       if (state.filters.length === 0) return state.candidates
       return state.candidates.filter((c) =>
-        state.filters.every((f) => c.extras?.[f.key] === f.value),
+        state.filters.every((f) => c.fields?.[f.key] === f.value),
       )
     },
   },
   actions: {
     loadFromStorage() {
-      this.candidates = readJSON('candidates', [])
-      this.winners = readJSON('winners', [])
+      // Migrate any legacy { firstName, lastName, extras } records to the
+      // generic { id, fields } shape on the way in.
+      this.candidates = migrateParticipants(readJSON('candidates', []))
+      this.winners = migrateParticipants(readJSON('winners', []))
       this.useMultiDisplayMode = readJSON('useMultiDisplayMode', false)
       this.filters = readJSON('filters', [])
     },
@@ -88,30 +90,36 @@ export const useParticipantStore = defineStore('participantStore', {
       localStorage.setItem('useMultiDisplayMode', JSON.stringify(value))
       broadcastSync('participants')
     },
-    // Replace the candidate pool, excluding anyone who has already won.
-    importParticipants(list) {
+    // Import a list of participants, excluding anyone who has already won.
+    //   mode 'replace' (default) — the list becomes the new candidate pool.
+    //   mode 'append' — add to the current pool, also skipping in-pool dups.
+    importParticipants(list, mode = 'replace') {
       const winnerKeys = new Set(this.winners.map(participantKey))
-      const filtered = []
+      const base = mode === 'append' ? [...this.candidates] : []
+      const seen = new Set(base.map(participantKey))
+      const added = []
       let skipped = 0
       for (const p of list) {
-        if (winnerKeys.has(participantKey(p))) {
+        const key = participantKey(p)
+        if (winnerKeys.has(key) || seen.has(key)) {
           skipped += 1
           continue
         }
-        filtered.push(p)
+        seen.add(key)
+        added.push(p)
       }
-      this.candidates = filtered
+      this.candidates = [...base, ...added]
       this.index = -1
       this.selected = null
       this.lastResetCandidates = null
       this.persistCandidates()
-      return { imported: filtered.length, skipped }
+      return { imported: added.length, skipped, mode }
     },
     resetCandidates() {
       // Snapshot the current list (and active filters) so the operator can
       // undo a mistaken click before doing anything else.
       this.lastResetCandidates = {
-        candidates: this.candidates.map((c) => ({ ...c, extras: { ...(c.extras ?? {}) } })),
+        candidates: this.candidates.map((c) => ({ ...c, fields: { ...(c.fields ?? {}) } })),
         filters: this.filters.map((f) => ({ ...f })),
       }
       this.candidates = []
@@ -127,10 +135,10 @@ export const useParticipantStore = defineStore('participantStore', {
     //   'remove' — clear them entirely (candidates untouched)
     // Either way a snapshot is kept so the reset can be undone from the toast.
     resetWinners(mode = 'return') {
-      const winners = this.winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } }))
+      const winners = this.winners.map((w) => ({ ...w, fields: { ...(w.fields ?? {}) } }))
       this.lastResetWinners = { mode, winners }
       if (mode === 'return') {
-        this.candidates.push(...winners.map((w) => ({ ...w, extras: { ...(w.extras ?? {}) } })))
+        this.candidates.push(...winners.map((w) => ({ ...w, fields: { ...(w.fields ?? {}) } })))
       }
       this.winners = []
       this.selected = null
@@ -164,8 +172,8 @@ export const useParticipantStore = defineStore('participantStore', {
       this.lastResetCandidates = null
       this.lastResetWinners = null
     },
-    addCandidate({ firstName, lastName, extras = {} }) {
-      this.candidates.push({ id: uid(), firstName, lastName, extras })
+    addCandidate(fields = {}) {
+      this.candidates.push({ id: uid(), fields: { ...fields } })
       this.persistCandidates()
     },
     removeCandidate(id) {
@@ -175,11 +183,10 @@ export const useParticipantStore = defineStore('participantStore', {
         this.persistCandidates()
       }
     },
-    updateCandidate(id, patch) {
+    updateCandidate(id, { fields } = {}) {
       const c = this.candidates.find((c) => c.id === id)
-      if (!c) return
-      if (patch.firstName !== undefined) c.firstName = patch.firstName
-      if (patch.lastName !== undefined) c.lastName = patch.lastName
+      if (!c || !fields) return
+      c.fields = { ...c.fields, ...fields }
       this.persistCandidates()
     },
     addFilter(key, value) {
@@ -224,7 +231,8 @@ export const useParticipantStore = defineStore('participantStore', {
     // remove them from the pool so they can never be drawn again.
     commitSelection() {
       if (this.index < 0 || this.index >= this.candidates.length) return
-      const winner = { ...this.candidates[this.index] }
+      const src = this.candidates[this.index]
+      const winner = { ...src, fields: { ...(src.fields ?? {}) } }
       this.winners.push(winner)
       this.candidates.splice(this.index, 1)
       this.selected = winner

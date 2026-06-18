@@ -39,8 +39,18 @@ describe('settings store', () => {
     expect(merged.theme.primary).toBe('#000000')
     // Untouched defaults survive.
     expect(merged.theme.surface).toBe(defaultSettings().theme.surface)
-    expect(merged.winnerDisplay.nameFormat).toBe('first-last')
+    expect(merged.winnerDisplay.nameKeys).toEqual(['First Name', 'Last Name'])
+    expect(merged.winnerDisplay.nameSeparator).toBe(' ')
     expect(merged.isPro).toBe(true)
+  })
+
+  it('mergeSettings migrates a legacy nameFormat to nameKeys/nameSeparator', () => {
+    expect(mergeSettings({ winnerDisplay: { nameFormat: 'last-first' } }).winnerDisplay).toMatchObject(
+      { nameKeys: ['Last Name', 'First Name'], nameSeparator: ', ' },
+    )
+    const first = mergeSettings({ winnerDisplay: { nameFormat: 'first' } }).winnerDisplay
+    expect(first.nameKeys).toEqual(['First Name'])
+    expect('nameFormat' in first).toBe(false)
   })
 
   it('mergeSettings falls back to defaults for malformed input', () => {
