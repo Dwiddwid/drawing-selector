@@ -1,11 +1,29 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useParticipantStore } from '../../stores/participants.js'
+import { useSettingsStore } from '../../stores/settings.js'
 import { filterParticipants } from '../../utils/search.js'
+import { formatWinnerName, collectFieldKeys } from '../../utils/winnerDisplay.js'
 
 const emit = defineEmits(['notify'])
 
 const store = useParticipantStore()
+const settings = useSettingsStore()
+
+// The fields that compose the headline drive the add/edit inputs. Fall back to
+// a single generic "Name" field for a fresh pool with no name config yet.
+const nameKeys = computed(() => {
+  const keys = settings.winnerDisplay.nameKeys
+  return keys && keys.length ? keys : ['Name']
+})
+function labelFor(key) {
+  const f = settings.winnerDisplay.fields.find((f) => f.key === key)
+  return f?.label || key
+}
+function colSpan(count) {
+  return Math.max(2, Math.floor(10 / count))
+}
+const displayName = (p) => formatWinnerName(p, settings.winnerDisplay) || '(no name)'
 
 // Search + pagination keep the list usable with large pools (hundreds or
 // thousands of rows) instead of rendering everything at once.
@@ -27,44 +45,48 @@ watch(pageCount, (count) => {
   if (page.value > count) page.value = count
 })
 
-const newFirst = ref('')
-const newLast = ref('')
-
+// Add/edit inputs keyed by name field. Reset when the set of name fields changes.
+const newFields = ref({})
 const editingId = ref(null)
-const editFirst = ref('')
-const editLast = ref('')
+const editFields = ref({})
+
+watch(nameKeys, () => {
+  newFields.value = {}
+})
 
 const pendingKey = ref(null)
 const pendingValue = ref(null)
 
+// Filterable keys are detail fields (exclude the headline/name fields) that
+// aren't already an active filter.
 const availableFilterKeys = computed(() => {
   const activeKeys = new Set(store.filters.map((f) => f.key))
-  return [...new Set(store.candidates.flatMap((c) => Object.keys(c.extras ?? {})))].filter(
-    (k) => !activeKeys.has(k),
-  )
+  const names = new Set(nameKeys.value)
+  return collectFieldKeys(store.candidates).filter((k) => !activeKeys.has(k) && !names.has(k))
 })
 
 const availableFilterValues = computed(() =>
   pendingKey.value
-    ? [...new Set(store.candidates.map((c) => c.extras?.[pendingKey.value]).filter(Boolean))]
+    ? [...new Set(store.candidates.map((c) => c.fields?.[pendingKey.value]).filter(Boolean))]
     : [],
 )
 
 function startEdit(participant) {
   editingId.value = participant.id
-  editFirst.value = participant.firstName
-  editLast.value = participant.lastName
+  const e = {}
+  for (const k of nameKeys.value) e[k] = participant.fields?.[k] ?? ''
+  editFields.value = e
 }
 
 function saveEdit() {
   if (!editingId.value) return
-  const first = editFirst.value.trim()
-  const last = editLast.value.trim()
-  if (!first && !last) {
-    emit('notify', 'Enter at least a first or last name.', 'warning')
+  const fields = {}
+  for (const k of nameKeys.value) fields[k] = (editFields.value[k] ?? '').trim()
+  if (Object.values(fields).every((v) => !v)) {
+    emit('notify', 'Enter at least one name field.', 'warning')
     return
   }
-  store.updateCandidate(editingId.value, { firstName: first, lastName: last })
+  store.updateCandidate(editingId.value, { fields })
   editingId.value = null
 }
 
@@ -73,15 +95,17 @@ function cancelEdit() {
 }
 
 function addParticipant() {
-  const first = newFirst.value.trim()
-  const last = newLast.value.trim()
-  if (!first && !last) {
-    emit('notify', 'Enter at least a first or last name.', 'warning')
+  const fields = {}
+  for (const k of nameKeys.value) {
+    const v = (newFields.value[k] ?? '').trim()
+    if (v) fields[k] = v
+  }
+  if (Object.keys(fields).length === 0) {
+    emit('notify', 'Enter at least one name field.', 'warning')
     return
   }
-  store.addCandidate({ firstName: first, lastName: last })
-  newFirst.value = ''
-  newLast.value = ''
+  store.addCandidate(fields)
+  newFields.value = {}
 }
 
 function onPendingKeyChange(key) {
@@ -125,20 +149,10 @@ function addFilter() {
         >
           <template v-if="editingId === participant.id">
             <v-row dense align="center" class="py-1">
-              <v-col cols="5">
+              <v-col v-for="key in nameKeys" :key="key" :cols="colSpan(nameKeys.length)">
                 <v-text-field
-                  v-model="editFirst"
-                  label="First"
-                  density="compact"
-                  hide-details
-                  @keyup.enter="saveEdit"
-                  @keyup.escape="cancelEdit"
-                />
-              </v-col>
-              <v-col cols="5">
-                <v-text-field
-                  v-model="editLast"
-                  label="Last"
+                  v-model="editFields[key]"
+                  :label="labelFor(key)"
                   density="compact"
                   hide-details
                   @keyup.enter="saveEdit"
@@ -148,7 +162,7 @@ function addFilter() {
             </v-row>
           </template>
           <template v-else>
-            {{ participant.firstName }} {{ participant.lastName }}
+            {{ displayName(participant) }}
           </template>
 
           <template v-slot:append>
@@ -208,19 +222,10 @@ function addFilter() {
       />
 
       <v-row class="mt-2" dense>
-        <v-col cols="5">
+        <v-col v-for="key in nameKeys" :key="key" :cols="colSpan(nameKeys.length)">
           <v-text-field
-            v-model="newFirst"
-            label="First name"
-            density="compact"
-            hide-details
-            @keyup.enter="addParticipant"
-          />
-        </v-col>
-        <v-col cols="5">
-          <v-text-field
-            v-model="newLast"
-            label="Last name"
+            v-model="newFields[key]"
+            :label="labelFor(key)"
             density="compact"
             hide-details
             @keyup.enter="addParticipant"

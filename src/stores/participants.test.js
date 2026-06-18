@@ -3,8 +3,14 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useParticipantStore, ANIMATION_TIMING } from './participants.js'
 
 function person(firstName, lastName, extras = {}) {
-  return { id: `${firstName}-${lastName}`, firstName, lastName, extras }
+  const fields = {}
+  if (firstName) fields['First Name'] = firstName
+  if (lastName) fields['Last Name'] = lastName
+  Object.assign(fields, extras)
+  return { id: `${firstName}-${lastName}`, fields }
 }
+const first = (p) => p.fields['First Name']
+const last = (p) => p.fields['Last Name']
 
 describe('participant store', () => {
   beforeEach(() => {
@@ -41,11 +47,12 @@ describe('participant store', () => {
     store.commitSelection()
 
     expect(store.candidates).toHaveLength(1)
-    expect(store.candidates[0].firstName).toBe('Alan')
+    expect(first(store.candidates[0])).toBe('Alan')
     expect(store.winners).toHaveLength(1)
-    expect(store.selected.firstName).toBe('Ada')
+    expect(first(store.selected)).toBe('Ada')
     // stored winner is a copy, not the original object reference
     expect(store.winners[0]).not.toBe(ada)
+    expect(store.winners[0].fields).not.toBe(ada.fields)
     expect(store.index).toBe(-1)
     expect(JSON.parse(localStorage.getItem('winners'))).toHaveLength(1)
   })
@@ -56,10 +63,34 @@ describe('participant store', () => {
 
     const result = store.importParticipants([person('Ada', 'Lovelace'), person('Alan', 'Turing')])
 
-    expect(result).toEqual({ imported: 1, skipped: 1 })
+    expect(result).toEqual({ imported: 1, skipped: 1, mode: 'replace' })
     expect(store.candidates).toHaveLength(1)
-    expect(store.candidates[0].firstName).toBe('Alan')
+    expect(first(store.candidates[0])).toBe('Alan')
     expect(JSON.parse(localStorage.getItem('candidates'))).toHaveLength(1)
+  })
+
+  it('importParticipants append adds to the pool, skipping in-pool and winner dups', () => {
+    const store = useParticipantStore()
+    store.candidates = [person('Ada', 'Lovelace')]
+    store.winners = [person('Grace', 'Hopper')]
+
+    const result = store.importParticipants(
+      [person('Ada', 'Lovelace'), person('Alan', 'Turing'), person('Grace', 'Hopper')],
+      'append',
+    )
+
+    expect(result).toEqual({ imported: 1, skipped: 2, mode: 'append' })
+    expect(store.candidates.map(first)).toEqual(['Ada', 'Alan'])
+  })
+
+  it('importParticipants replace swaps out the whole pool', () => {
+    const store = useParticipantStore()
+    store.candidates = [person('Ada', 'Lovelace')]
+
+    const result = store.importParticipants([person('Alan', 'Turing')], 'replace')
+
+    expect(result).toEqual({ imported: 1, skipped: 0, mode: 'replace' })
+    expect(store.candidates.map(first)).toEqual(['Alan'])
   })
 
   it('loadFromStorage reads persisted state', () => {
@@ -73,6 +104,20 @@ describe('participant store', () => {
     expect(store.candidates).toHaveLength(1)
     expect(store.winners).toHaveLength(1)
     expect(store.useMultiDisplayMode).toBe(true)
+  })
+
+  it('loadFromStorage migrates legacy { firstName, lastName, extras } records', () => {
+    localStorage.setItem(
+      'candidates',
+      JSON.stringify([{ id: '1', firstName: 'Ada', lastName: 'Lovelace', extras: { Grade: '3' } }]),
+    )
+    const store = useParticipantStore()
+    store.loadFromStorage()
+    expect(store.candidates[0].fields).toEqual({
+      'First Name': 'Ada',
+      'Last Name': 'Lovelace',
+      Grade: '3',
+    })
   })
 
   it('resetCandidates and resetWinners clear state and storage', () => {
@@ -94,27 +139,27 @@ describe('participant store', () => {
   describe('addCandidate', () => {
     it('appends a participant with a generated id and persists', () => {
       const store = useParticipantStore()
-      store.addCandidate({ firstName: 'Grace', lastName: 'Hopper' })
+      store.addCandidate({ 'First Name': 'Grace', 'Last Name': 'Hopper' })
 
       expect(store.candidates).toHaveLength(1)
       const c = store.candidates[0]
-      expect(c.firstName).toBe('Grace')
-      expect(c.lastName).toBe('Hopper')
+      expect(first(c)).toBe('Grace')
+      expect(last(c)).toBe('Hopper')
       expect(c.id).toBeTruthy()
-      expect(JSON.parse(localStorage.getItem('candidates'))[0].firstName).toBe('Grace')
+      expect(JSON.parse(localStorage.getItem('candidates'))[0].fields['First Name']).toBe('Grace')
     })
 
     it('assigns distinct ids even for identical names', () => {
       const store = useParticipantStore()
-      store.addCandidate({ firstName: 'Ada', lastName: 'Lovelace' })
-      store.addCandidate({ firstName: 'Ada', lastName: 'Lovelace' })
+      store.addCandidate({ 'First Name': 'Ada', 'Last Name': 'Lovelace' })
+      store.addCandidate({ 'First Name': 'Ada', 'Last Name': 'Lovelace' })
       expect(store.candidates[0].id).not.toBe(store.candidates[1].id)
     })
 
-    it('defaults extras to an empty object', () => {
+    it('defaults to an empty fields object when none given', () => {
       const store = useParticipantStore()
-      store.addCandidate({ firstName: 'Ada', lastName: 'Lovelace' })
-      expect(store.candidates[0].extras).toEqual({})
+      store.addCandidate()
+      expect(store.candidates[0].fields).toEqual({})
     })
   })
 
@@ -128,7 +173,7 @@ describe('participant store', () => {
       store.removeCandidate(ada.id)
 
       expect(store.candidates).toHaveLength(1)
-      expect(store.candidates[0].firstName).toBe('Alan')
+      expect(first(store.candidates[0])).toBe('Alan')
       expect(JSON.parse(localStorage.getItem('candidates'))).toHaveLength(1)
     })
 
@@ -153,7 +198,7 @@ describe('participant store', () => {
 
       expect(store.candidates).toHaveLength(2)
       expect(store.winners).toHaveLength(1)
-      expect(store.winners[0].firstName).toBe('Alan')
+      expect(first(store.winners[0])).toBe('Alan')
       expect(store.index).toBe(-1)
       expect(store.selected).toBeNull()
       expect(JSON.parse(localStorage.getItem('candidates'))).toHaveLength(2)
@@ -162,22 +207,23 @@ describe('participant store', () => {
   })
 
   describe('updateCandidate', () => {
-    it('patches firstName and lastName and persists', () => {
+    it('merges field patches and persists', () => {
       const store = useParticipantStore()
       store.candidates = [person('Ada', 'Lovelace')]
       store.persistCandidates()
 
-      store.updateCandidate('Ada-Lovelace', { firstName: 'Ada', lastName: 'Byron' })
+      store.updateCandidate('Ada-Lovelace', { fields: { 'Last Name': 'Byron' } })
 
-      expect(store.candidates[0].lastName).toBe('Byron')
-      expect(JSON.parse(localStorage.getItem('candidates'))[0].lastName).toBe('Byron')
+      expect(last(store.candidates[0])).toBe('Byron')
+      expect(first(store.candidates[0])).toBe('Ada') // untouched field preserved
+      expect(JSON.parse(localStorage.getItem('candidates'))[0].fields['Last Name']).toBe('Byron')
     })
 
     it('is a no-op for an unknown id', () => {
       const store = useParticipantStore()
       store.candidates = [person('Ada', 'Lovelace')]
-      store.updateCandidate('ghost-id', { firstName: 'X' })
-      expect(store.candidates[0].firstName).toBe('Ada')
+      store.updateCandidate('ghost-id', { fields: { 'First Name': 'X' } })
+      expect(first(store.candidates[0])).toBe('Ada')
     })
   })
 
@@ -200,7 +246,7 @@ describe('participant store', () => {
       ]
       store.addFilter('Grade', '3')
       expect(store.filteredCandidates).toHaveLength(2)
-      expect(store.filteredCandidates.map((c) => c.firstName)).toEqual(['Ada', 'Grace'])
+      expect(store.filteredCandidates.map(first)).toEqual(['Ada', 'Grace'])
     })
 
     it('filters by multiple fields simultaneously (AND logic)', () => {
@@ -213,7 +259,7 @@ describe('participant store', () => {
       store.addFilter('Grade', '3')
       store.addFilter('Bus', '12B')
       expect(store.filteredCandidates).toHaveLength(1)
-      expect(store.filteredCandidates[0].firstName).toBe('Ada')
+      expect(first(store.filteredCandidates[0])).toBe('Ada')
     })
 
     it('addFilter replaces an existing filter for the same key', () => {
@@ -226,7 +272,7 @@ describe('participant store', () => {
       store.addFilter('Grade', '4')
       expect(store.filters).toHaveLength(1)
       expect(store.filteredCandidates).toHaveLength(1)
-      expect(store.filteredCandidates[0].firstName).toBe('Alan')
+      expect(first(store.filteredCandidates[0])).toBe('Alan')
     })
 
     it('removeFilter removes only the specified field', () => {
@@ -303,7 +349,7 @@ describe('participant store', () => {
       projector.loadFromStorage()
       expect(projector.filters).toEqual([{ key: 'Grade', value: '3' }])
       expect(projector.filteredCandidates).toHaveLength(1)
-      expect(projector.filteredCandidates[0].firstName).toBe('Ada')
+      expect(first(projector.filteredCandidates[0])).toBe('Ada')
     })
 
     it('loadFilters reloads only filters from storage without touching candidates', () => {
@@ -317,7 +363,7 @@ describe('participant store', () => {
       store.loadFilters()
       expect(store.candidates).toHaveLength(2)
       expect(store.filteredCandidates).toHaveLength(1)
-      expect(store.filteredCandidates[0].firstName).toBe('Alan')
+      expect(first(store.filteredCandidates[0])).toBe('Alan')
     })
   })
 
@@ -357,7 +403,7 @@ describe('participant store', () => {
       vi.runAllTimers()
 
       expect(store.winners).toHaveLength(1)
-      expect(store.winners[0].extras.Grade).toBe('3')
+      expect(store.winners[0].fields.Grade).toBe('3')
     })
 
     it('returns false when the filtered pool is empty', () => {
@@ -430,7 +476,7 @@ describe('participant store', () => {
         expect(idx).toBeGreaterThanOrEqual(0)
         expect(idx).toBeLessThan(store.candidates.length)
         // Must point at someone who matches the filter.
-        expect(store.candidates[idx].extras.Grade).toBe('3')
+        expect(store.candidates[idx].fields.Grade).toBe('3')
       }
       // No mutation of running spin state.
       expect(store.spinning).toBe(false)
@@ -474,9 +520,9 @@ describe('participant store', () => {
 
       expect(store.commitAt(1)).toBe(true)
       expect(store.spinning).toBe(false)
-      expect(store.selected.firstName).toBe('Alan')
+      expect(first(store.selected)).toBe('Alan')
       expect(store.candidates).toHaveLength(1)
-      expect(store.candidates[0].firstName).toBe('Ada')
+      expect(first(store.candidates[0])).toBe('Ada')
     })
 
     it('commitAt with an out-of-range index bails cleanly and still clears spinning', () => {
@@ -504,7 +550,7 @@ describe('participant store', () => {
       // No timers needed — the visual layer drives timing in real code.
       expect(store.commitAt(idx)).toBe(true)
       expect(store.winners).toHaveLength(1)
-      expect(store.winners[0].firstName).toBe(expectedWinner.firstName)
+      expect(first(store.winners[0])).toBe(first(expectedWinner))
       expect(store.candidates).toHaveLength(2)
     })
   })
@@ -555,7 +601,7 @@ describe('participant store', () => {
 
       store.undoResetWinners()
       expect(store.winners).toHaveLength(1)
-      expect(store.winners[0].firstName).toBe('Ada')
+      expect(first(store.winners[0])).toBe('Ada')
     })
 
     it("resetWinners('return') moves winners back into the candidate pool", () => {
@@ -569,8 +615,8 @@ describe('participant store', () => {
 
       // Undo pulls them back out of candidates and restores winners.
       expect(store.undoResetWinners()).toBe(true)
-      expect(store.winners.map((w) => w.firstName)).toEqual(['Ada'])
-      expect(store.candidates.map((c) => c.firstName)).toEqual(['Grace'])
+      expect(store.winners.map(first)).toEqual(['Ada'])
+      expect(store.candidates.map(first)).toEqual(['Grace'])
     })
 
     it("resetWinners('remove') clears winners without touching candidates", () => {
@@ -585,7 +631,7 @@ describe('participant store', () => {
 
       // Undo restores winners exactly; candidates stay untouched.
       expect(store.undoResetWinners()).toBe(true)
-      expect(store.winners.map((w) => w.firstName)).toEqual(['Ada'])
+      expect(store.winners.map(first)).toEqual(['Ada'])
       expect(store.candidates).toHaveLength(1)
       // Undo is single-use.
       expect(store.undoResetWinners()).toBe(false)
@@ -629,7 +675,7 @@ describe('participant store', () => {
       expect(JSON.parse(localStorage.getItem('filters'))).toEqual([])
       // filteredCandidates should now return the full imported pool.
       expect(store.filteredCandidates).toHaveLength(1)
-      expect(store.filteredCandidates[0].firstName).toBe('Grace')
+      expect(first(store.filteredCandidates[0])).toBe('Grace')
     })
   })
 })

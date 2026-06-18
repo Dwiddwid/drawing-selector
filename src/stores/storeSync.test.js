@@ -13,7 +13,10 @@ vi.mock('../utils/sync.js', () => ({
   closeSyncChannel: vi.fn(),
 }))
 
-const person = (firstName, lastName) => ({ id: `${firstName}-${lastName}`, firstName, lastName, extras: {} })
+const person = (firstName, lastName) => ({
+  id: `${firstName}-${lastName}`,
+  fields: { 'First Name': firstName, 'Last Name': lastName },
+})
 
 describe('store persistence broadcasts sync messages', () => {
   beforeEach(() => {
@@ -24,7 +27,7 @@ describe('store persistence broadcasts sync messages', () => {
 
   it('participant persistence emits a participants sync', () => {
     const store = useParticipantStore()
-    store.addCandidate({ firstName: 'Ada', lastName: 'Lovelace' })
+    store.addCandidate({ 'First Name': 'Ada', 'Last Name': 'Lovelace' })
     expect(broadcastSync).toHaveBeenCalledWith('participants')
   })
 

@@ -41,7 +41,10 @@ function startDraw() {
     pendingWinnerIdx.value = idx
     // The giant wheel shows every candidate (names scroll past), so don't cap
     // the segment count; the standard wheel keeps the default cap.
-    const opts = isGiantWheel.value ? { max: store.candidates.length } : {}
+    const label = (c) => formatWinnerName(c, settings.winnerDisplay) || '(no name)'
+    const opts = isGiantWheel.value
+      ? { max: store.candidates.length, label }
+      : { label }
     const { segments, winnerSegmentIdx } = buildWheelSegments(store.candidates, idx, opts)
     wheelSegments.value = segments
     wheelWinnerSegmentIdx.value = winnerSegmentIdx
@@ -96,7 +99,10 @@ const wheelStageStyle = computed(() => {
 })
 
 const winnerName = computed(() =>
-  store.selected ? formatWinnerName(store.selected, settings.winnerDisplay.nameFormat) : '',
+  store.selected ? formatWinnerName(store.selected, settings.winnerDisplay) : '',
+)
+const spinName = computed(() =>
+  store.currentCandidate ? formatWinnerName(store.currentCandidate, settings.winnerDisplay) : '',
 )
 const detailRows = computed(() =>
   store.selected ? visibleWinnerFields(store.selected, settings.winnerDisplay) : [],
@@ -285,9 +291,7 @@ watch(
               class="spin-name"
               :class="{ spinning: store.spinning }"
             >
-              <h2 class="card-name">
-                {{ store.currentCandidate.firstName }} {{ store.currentCandidate.lastName }}
-              </h2>
+              <h2 class="card-name">{{ spinName }}</h2>
             </div>
             <div v-else-if="store.selected">
               <h2 class="card-name">{{ winnerName }}</h2>

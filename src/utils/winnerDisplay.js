@@ -1,37 +1,36 @@
 // Pure helpers for rendering the winner on the drawing screen, driven by the
 // user's winnerDisplay settings. Kept framework-free so they can be unit tested.
 
-export function formatWinnerName(winner, nameFormat) {
-  const first = (winner.firstName || '').trim()
-  const last = (winner.lastName || '').trim()
-  switch (nameFormat) {
-    case 'first':
-      return first
-    case 'last-first':
-      return last && first ? `${last}, ${first}` : last || first
-    case 'first-last':
-    default:
-      return [first, last].filter(Boolean).join(' ')
-  }
+// Compose the headline/title for a participant from the configured name fields.
+// `winnerDisplay` provides `nameKeys` (ordered field keys) and `nameSeparator`.
+export function formatWinnerName(participant, winnerDisplay) {
+  const fields = participant?.fields || {}
+  const { nameKeys = [], nameSeparator = ' ' } = winnerDisplay || {}
+  return nameKeys
+    .map((k) => (fields[k] ?? '').trim())
+    .filter(Boolean)
+    .join(nameSeparator)
 }
 
-// Returns the ordered, visible detail rows for a winner. Each row pulls its
-// value from the winner's extras by key, skipping fields with no value.
+// Returns the ordered, visible detail rows for a winner. Pulls values from the
+// winner's fields, skips empty values, and excludes the name fields so they
+// don't duplicate the headline.
 export function visibleWinnerFields(winner, winnerDisplay) {
-  const extras = winner.extras || {}
+  const fields = winner?.fields || {}
+  const nameKeys = new Set(winnerDisplay?.nameKeys || [])
   return (winnerDisplay.fields || [])
-    .filter((f) => f.visible)
-    .map((f) => ({ key: f.key, label: f.label || f.key, value: extras[f.key] ?? '' }))
+    .filter((f) => f.visible && !nameKeys.has(f.key))
+    .map((f) => ({ key: f.key, label: f.label || f.key, value: fields[f.key] ?? '' }))
     .filter((row) => row.value !== '')
 }
 
-// Union of all extras keys across a list of participants, preserving first-seen
+// Union of all field keys across a list of participants, preserving first-seen
 // order. Used to populate the configurable field list.
-export function collectExtraKeys(participants) {
+export function collectFieldKeys(participants) {
   const seen = new Set()
   const keys = []
   for (const p of participants) {
-    for (const key of Object.keys(p.extras || {})) {
+    for (const key of Object.keys(p.fields || {})) {
       if (!seen.has(key)) {
         seen.add(key)
         keys.push(key)

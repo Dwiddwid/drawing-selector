@@ -1,12 +1,13 @@
 // Case-insensitive participant search used by the admin lists. Matches against
-// the full name and every extras value so "12B" finds everyone on that bus
-// route just like "smith" finds the Smiths.
+// every field value (and the space-joined combination, so a multi-word query
+// like "ada love" still finds someone whose name spans two fields) just like
+// "12B" finds everyone on that bus route.
 export function filterParticipants(list, query) {
   const q = (query ?? '').trim().toLowerCase()
   if (!q) return list
   return list.filter((p) => {
-    const name = `${p.firstName ?? ''} ${p.lastName ?? ''}`.toLowerCase()
-    if (name.includes(q)) return true
-    return Object.values(p.extras ?? {}).some((v) => String(v).toLowerCase().includes(q))
+    const values = Object.values(p.fields ?? {}).map((v) => String(v).toLowerCase())
+    if (values.some((v) => v.includes(q))) return true
+    return values.join(' ').includes(q)
   })
 }

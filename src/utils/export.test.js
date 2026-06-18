@@ -2,7 +2,11 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { downloadWinnersCsv, exportStateJson, deserializeState } from './export.js'
 
 function person(firstName, lastName, extras = {}) {
-  return { id: `${firstName}-${lastName}`, firstName, lastName, extras }
+  const fields = {}
+  if (firstName) fields['First Name'] = firstName
+  if (lastName) fields['Last Name'] = lastName
+  Object.assign(fields, extras)
+  return { id: `${firstName}-${lastName}`, fields }
 }
 
 // Sets up stubs for the browser download APIs that jsdom does not implement.
@@ -52,6 +56,17 @@ describe('deserializeState', () => {
     expect(deserializeState(JSON.stringify({ candidates: [], winners: [] }))).toEqual({
       candidates: [],
       winners: [],
+    })
+  })
+
+  it('migrates legacy { firstName, lastName, extras } records from old backups', () => {
+    const legacy = { id: 'x', firstName: 'Ada', lastName: 'Lovelace', extras: { Grade: '3' } }
+    const { candidates } = deserializeState(
+      JSON.stringify({ candidates: [legacy], winners: [] }),
+    )
+    expect(candidates[0]).toEqual({
+      id: 'x',
+      fields: { 'First Name': 'Ada', 'Last Name': 'Lovelace', Grade: '3' },
     })
   })
 })

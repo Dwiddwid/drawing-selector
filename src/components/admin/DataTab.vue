@@ -2,8 +2,10 @@
 import { ref, computed } from 'vue'
 import { useParticipantStore } from '../../stores/participants.js'
 import { useSettingsStore, mergeSettings } from '../../stores/settings.js'
-import { parseParticipantsCsv } from '../../utils/csv.js'
+import { parseCsv, normalizeWithMapping } from '../../utils/csv.js'
+import { collectFieldKeys } from '../../utils/winnerDisplay.js'
 import { exportStateJson, deserializeState } from '../../utils/export.js'
+import CsvMappingDialog from './CsvMappingDialog.vue'
 
 const emit = defineEmits(['notify'])
 
@@ -12,6 +14,11 @@ const settings = useSettingsStore()
 
 const myFile = ref(null)
 const stateFile = ref(null)
+
+// CSV column-mapping dialog state. `pendingCsv` holds the parsed file until the
+// user confirms a mapping.
+const mappingOpen = ref(false)
+const pendingCsv = ref({ headers: [], rows: [] })
 
 // Reset-confirmation dialog. `pendingReset` is 'candidates' | 'winners' | null.
 const pendingReset = ref(null)
@@ -41,17 +48,13 @@ function selectedFile() {
   reader.readAsText(file, 'UTF-8')
   reader.onload = (evt) => {
     try {
-      const participants = parseParticipantsCsv(evt.target.result)
-      if (participants.length === 0) {
+      const { headers, rows } = parseCsv(evt.target.result)
+      if (headers.length === 0 || rows.length === 0) {
         notify('No participants found in that file.', 'warning')
         return
       }
-      const { imported, skipped } = store.importParticipants(participants)
-      notify(
-        `Imported ${imported} participant${imported === 1 ? '' : 's'}` +
-          (skipped ? ` (skipped ${skipped} previous winner${skipped === 1 ? '' : 's'})` : ''),
-        'success',
-      )
+      pendingCsv.value = { headers, rows }
+      mappingOpen.value = true
     } catch (err) {
       notify(err.message || 'Could not read that file.', 'error')
     }
@@ -59,6 +62,45 @@ function selectedFile() {
   reader.onerror = () => {
     notify('Could not read that file.', 'error')
   }
+}
+
+function onMappingConfirm({ mapping, mode }) {
+  mappingOpen.value = false
+  const list = normalizeWithMapping(pendingCsv.value.rows, mapping)
+  if (list.length === 0) {
+    notify('No participants found with that mapping.', 'warning')
+    return
+  }
+  const { imported, skipped } = store.importParticipants(list, mode)
+  // Register any new columns so they show up in the winner-display editor.
+  settings.syncFields(collectFieldKeys(store.getParticipants))
+  // Apply the headline (name) fields chosen in the dialog. Replace swaps them
+  // out; append unions with whatever is already configured.
+  const nameKeys = mapping
+    .filter((m) => m.include && m.role === 'name')
+    .map((m) => (m.label || m.key).trim())
+  if (mode === 'append') {
+    settings.setNameKeys([...new Set([...settings.winnerDisplay.nameKeys, ...nameKeys])])
+  } else {
+    settings.setNameKeys(nameKeys)
+  }
+  notify(
+    `${mode === 'append' ? 'Added' : 'Imported'} ${imported} participant${imported === 1 ? '' : 's'}` +
+      (skipped ? ` (skipped ${skipped} duplicate${skipped === 1 ? '' : 's'})` : ''),
+    'success',
+  )
+  resetFileInput()
+}
+
+function onMappingCancel() {
+  mappingOpen.value = false
+  resetFileInput()
+}
+
+// Clear the file input so re-selecting the same file fires @change again.
+function resetFileInput() {
+  pendingCsv.value = { headers: [], rows: [] }
+  myFile.value = null
 }
 
 function askResetCandidates() {
@@ -168,6 +210,15 @@ function importStateFile() {
       <v-btn class="mb-2" @click="askResetWinners">Reset winners</v-btn>
     </template>
   </v-card>
+
+  <CsvMappingDialog
+    v-model="mappingOpen"
+    :headers="pendingCsv.headers"
+    :preview="pendingCsv.rows"
+    :row-count="pendingCsv.rows.length"
+    @confirm="onMappingConfirm"
+    @cancel="onMappingCancel"
+  />
 
   <v-card prepend-icon="fas fa-floppy-disk" variant="outlined">
     <template v-slot:title> Backup / Restore </template>

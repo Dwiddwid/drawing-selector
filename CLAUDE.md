@@ -26,22 +26,33 @@ starts fast and slows by incrementing `delay` — do not replace with
 Key actions:
 | Action | Effect |
 |---|---|
-| `importParticipants(list)` | Replaces candidate pool; skips prior winners by key |
-| `addCandidate({ firstName, lastName, extras? })` | Appends one participant with a generated id |
+| `importParticipants(list, mode = 'replace')` | `'replace'` swaps the pool; `'append'` adds to it. Always skips prior winners (and, when appending, in-pool dups) by key |
+| `addCandidate(fields)` | Appends one participant `{ id, fields }` with a generated id |
+| `updateCandidate(id, { fields })` | Merges a field patch into the participant |
 | `removeCandidate(id)` | Splices by id |
-| `commitSelection()` | Copies winner (not reference), splices from pool |
+| `commitSelection()` | Copies winner (deep-copies `fields`), splices from pool |
 | `importState({ candidates, winners })` | Full restore from JSON backup |
 | `resetCandidates()` / `resetWinners()` | Clear lists and localStorage |
 
-### CSV parsing — `src/utils/csv.js`
+### CSV parsing & column mapping — `src/utils/csv.js`
 
-`parseParticipantsCsv(text)` is the top-level entry point. Internally:
+CSV import is interactive: the user maps each column to a role in
+`CsvMappingDialog.vue` before anything is imported. The flow is
+`parseCsv` → dialog (`suggestMapping`) → `normalizeWithMapping` →
+`store.importParticipants`.
 - `parseCsv(text)` → `{ headers, rows }` — handles quoted fields, escaped `""`,
   CRLF/CR/LF
-- `normalizeParticipants(headers, rows)` → `Participant[]` — maps flexible
-  header aliases to `{ id, firstName, lastName, extras }`, throws if required
-  columns are absent
-- `participantKey(p)` — stable de-dup key (lowercased name + sorted extras)
+- `suggestMapping(headers)` → `[{ key, role, label, include }]` — alias-based
+  defaults (`role: 'name'` for first/last/single-name columns, else `'detail'`)
+  to pre-fill the dialog
+- `normalizeWithMapping(rows, mapping)` → `Participant[]` — builds the generic
+  `{ id, fields }` shape; the custom `label` becomes the field key; skips rows
+  whose name-role values are all empty
+- `participantKey(p)` — stable de-dup key (sorted `key=value` over all fields,
+  lowercased)
+- `migrateParticipant(p)` / `migrateParticipants(list)` — idempotently convert
+  legacy `{ firstName, lastName, extras }` records to `{ id, fields }`. Run on
+  `loadFromStorage` and `deserializeState`
 - `uid()` — exported; used by the store for `addCandidate`
 
 ### Export helpers — `src/utils/export.js`
@@ -100,21 +111,31 @@ needed for `describe`/`it`/`expect`).
 
 ## Participant data shape
 
+Participants are generic — they need not be people. A participant is an `id`
+plus an insertion-ordered `fields` map (every value is a string):
+
 ```js
 {
   id: string,          // crypto.randomUUID() or fallback
-  firstName: string,
-  lastName: string,
-  extras: {            // keyed by original CSV header, value always string
+  fields: {            // keyed by the field label, value always string
+    "First Name": "Ada",
+    "Last Name": "Lovelace",
     "School Grade": "3",
-    "Bus Route": "12B",
-    // ...any other columns
+    // ...e.g. a restaurant list might be { "Restaurant": "...", "Cuisine": "..." }
   }
 }
 ```
 
-`extras` preserves the original CSV header casing and order. The drawing screen
-renders all entries in `extras` as `Header: value`.
+Which field(s) form the displayed headline vs. detail rows is configured in
+`settings.winnerDisplay`:
+- `nameKeys: string[]` — ordered field keys composing the headline, joined by
+  `nameSeparator`. `formatWinnerName(p, winnerDisplay)` builds it.
+- `fields: [{ key, label, visible }]` — per-field label/visibility/order;
+  `visibleWinnerFields` returns the visible **detail** rows (name keys excluded).
+
+Editable both in the import mapping dialog and in `EventSettings.vue`. Legacy
+`{ firstName, lastName, extras }` data (and old `nameFormat`) is migrated on load
+(see `migrateParticipant` and `mergeSettings`).
 
 ## Key constraints
 

@@ -1,10 +1,18 @@
 import { filterParticipants } from './search.js'
 
+function person(firstName, lastName, extras = {}) {
+  const fields = {}
+  if (firstName) fields['First Name'] = firstName
+  if (lastName) fields['Last Name'] = lastName
+  Object.assign(fields, extras)
+  return { id: `${firstName}-${lastName}`, fields }
+}
+
 const people = [
-  { id: '1', firstName: 'Ada', lastName: 'Lovelace', extras: { Grade: '3', 'Bus Route': '12B' } },
-  { id: '2', firstName: 'Alan', lastName: 'Turing', extras: { Grade: '4' } },
-  { id: '3', firstName: 'Grace', lastName: 'Hopper', extras: {} },
-  { id: '4', firstName: 'Katherine', lastName: 'Johnson' }, // no extras at all
+  { ...person('Ada', 'Lovelace', { Grade: '3', 'Bus Route': '12B' }), id: '1' },
+  { ...person('Alan', 'Turing', { Grade: '4' }), id: '2' },
+  { ...person('Grace', 'Hopper'), id: '3' },
+  { id: '4', fields: { 'First Name': 'Katherine', 'Last Name': 'Johnson' } },
 ]
 
 describe('filterParticipants', () => {
@@ -20,11 +28,11 @@ describe('filterParticipants', () => {
     expect(filterParticipants(people, 'HOPPER').map((p) => p.id)).toEqual(['3'])
   })
 
-  it('matches across the full name', () => {
+  it('matches across the full name (query spanning two fields)', () => {
     expect(filterParticipants(people, 'alan tur').map((p) => p.id)).toEqual(['2'])
   })
 
-  it('matches extras values', () => {
+  it('matches field values', () => {
     expect(filterParticipants(people, '12b').map((p) => p.id)).toEqual(['1'])
     expect(filterParticipants(people, '4').map((p) => p.id)).toEqual(['2'])
   })
@@ -33,7 +41,7 @@ describe('filterParticipants', () => {
     expect(filterParticipants(people, 'zebra')).toEqual([])
   })
 
-  it('tolerates participants without extras', () => {
+  it('tolerates participants without fields', () => {
     expect(filterParticipants(people, 'katherine').map((p) => p.id)).toEqual(['4'])
   })
 })

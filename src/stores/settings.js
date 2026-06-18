@@ -33,10 +33,14 @@ export function defaultSettings() {
       winnerCardText: null,
     },
     winnerDisplay: {
-      nameFormat: 'first-last', // 'first-last' | 'first' | 'last-first'
+      // Ordered field keys that compose the headline/title, joined by
+      // `nameSeparator`. Defaults reproduce the original "First Last" look.
+      nameKeys: ['First Name', 'Last Name'],
+      nameSeparator: ' ',
       showLabels: true,
-      // Ordered detail rows shown under the winner's name. `key` matches an
-      // extras header; `visible` toggles it; `label` overrides the displayed text.
+      // Per-field config. `key` matches a participant field key; `visible`
+      // toggles it; `label` overrides the displayed text. Name fields also
+      // appear here so their label is editable, but render as the headline.
       fields: [],
     },
     // Reveal animation variant for the drawing screen. The picking math is
@@ -78,6 +82,34 @@ function readJSON(key, fallback) {
   }
 }
 
+// Map the legacy `nameFormat` enum onto the generic name-field config so older
+// installs/backups keep their "First Last" / "Last, First" headline.
+const LEGACY_NAME_FORMATS = {
+  'first-last': { nameKeys: ['First Name', 'Last Name'], nameSeparator: ' ' },
+  'last-first': { nameKeys: ['Last Name', 'First Name'], nameSeparator: ', ' },
+  first: { nameKeys: ['First Name'], nameSeparator: ' ' },
+}
+
+function mergeWinnerDisplay(stored, base) {
+  const sw = stored || {}
+  const merged = {
+    ...base,
+    ...sw,
+    fields: Array.isArray(sw.fields) ? sw.fields : base.fields,
+  }
+  // Migrate legacy nameFormat → nameKeys/nameSeparator when the new keys are
+  // absent.
+  if (!Array.isArray(sw.nameKeys) && sw.nameFormat) {
+    const legacy = LEGACY_NAME_FORMATS[sw.nameFormat] || LEGACY_NAME_FORMATS['first-last']
+    merged.nameKeys = legacy.nameKeys
+    merged.nameSeparator = legacy.nameSeparator
+  }
+  if (!Array.isArray(merged.nameKeys)) merged.nameKeys = [...base.nameKeys]
+  if (typeof merged.nameSeparator !== 'string') merged.nameSeparator = base.nameSeparator
+  delete merged.nameFormat
+  return merged
+}
+
 const ANIMATION_STYLES = ['classic', 'wheel', 'wheel-giant', 'reel']
 const BACKGROUND_STYLES = ['waves', 'solid', 'image', 'gradient']
 const SPINNER_COLOR_MODES = ['default', 'theme', 'custom']
@@ -113,13 +145,7 @@ export function mergeSettings(stored) {
   return {
     isPro: typeof stored.isPro === 'boolean' ? stored.isPro : base.isPro,
     theme,
-    winnerDisplay: {
-      ...base.winnerDisplay,
-      ...(stored.winnerDisplay || {}),
-      fields: Array.isArray(stored.winnerDisplay?.fields)
-        ? stored.winnerDisplay.fields
-        : base.winnerDisplay.fields,
-    },
+    winnerDisplay: mergeWinnerDisplay(stored.winnerDisplay, base.winnerDisplay),
     animationStyle: ANIMATION_STYLES.includes(stored.animationStyle)
       ? stored.animationStyle
       : base.animationStyle,
@@ -196,6 +222,22 @@ export const useSettingsStore = defineStore('settingsStore', {
         }
       }
       this.winnerDisplay = { ...this.winnerDisplay, fields: next }
+      this.persist()
+    },
+    setNameKeys(keys) {
+      this.winnerDisplay = { ...this.winnerDisplay, nameKeys: [...keys] }
+      this.persist()
+    },
+    toggleNameKey(key) {
+      const current = this.winnerDisplay.nameKeys
+      const nameKeys = current.includes(key)
+        ? current.filter((k) => k !== key)
+        : [...current, key]
+      this.winnerDisplay = { ...this.winnerDisplay, nameKeys }
+      this.persist()
+    },
+    setNameSeparator(sep) {
+      this.winnerDisplay = { ...this.winnerDisplay, nameSeparator: sep }
       this.persist()
     },
     setFieldVisible(key, visible) {
