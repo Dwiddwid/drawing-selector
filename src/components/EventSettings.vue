@@ -22,7 +22,7 @@ const animationStyles = [
   { title: 'Classic slot machine', value: 'classic' },
   { title: 'Spinning wheel', value: 'wheel' },
   { title: 'Giant wheel (names scroll past)', value: 'wheel-giant' },
-  { title: 'Vertical reel', value: 'reel' },
+  { title: 'Price Is Right wheel', value: 'reel' },
 ]
 
 // Theme color pickers. Optional entries are overrides that fall back to
@@ -54,8 +54,15 @@ const spinnerPositions = [
   { title: 'Center', value: 'center' },
   { title: 'Right', value: 'right' },
 ]
+// Styles that share the spinner appearance controls (segment colors + pointer).
+// The Price Is Right wheel ('reel') reuses the segment palette and the pointer
+// color (as its flapper color); the size/position/zoom sub-controls below stay
+// gated to the standard and giant wheels.
 const isWheelStyle = computed(
-  () => settings.animationStyle === 'wheel' || settings.animationStyle === 'wheel-giant',
+  () =>
+    settings.animationStyle === 'wheel' ||
+    settings.animationStyle === 'wheel-giant' ||
+    settings.animationStyle === 'reel',
 )
 
 function setCustomColor(idx, value) {
@@ -512,12 +519,14 @@ function resetAll() {
               </div>
 
               <div class="d-flex align-center ga-2 mb-3">
-                <span class="text-body-2">Pointer color</span>
+                <span class="text-body-2">{{
+                  settings.animationStyle === 'reel' ? 'Flapper color' : 'Pointer color'
+                }}</span>
                 <input
                   type="color"
                   :value="settings.spinner.pointerColor"
                   class="color-input"
-                  aria-label="Pointer color"
+                  :aria-label="settings.animationStyle === 'reel' ? 'Flapper color' : 'Pointer color'"
                   @input="settings.updateSpinner({ pointerColor: $event.target.value })"
                 />
               </div>

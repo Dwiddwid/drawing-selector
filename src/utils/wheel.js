@@ -105,3 +105,35 @@ export function targetRotation(winnerSegmentIdx, segmentCount, fullSpins = 5) {
   const pointerAngle = -Math.PI / 2
   return pointerAngle - segCenter + Math.PI * 2 * fullSpins
 }
+
+// Final drum rotation (DEGREES) that brings `winnerIdx`'s panel to the front-
+// center of the vertical reel, where the side pointer sits. Each panel `i` is
+// mounted around the drum at rotateX(i · 360/n); rotating the drum by the
+// returned angle leaves the winner's panel a whole number of turns from
+// face-front (i.e. squarely toward the viewer). `turns` adds full revolutions
+// for showmanship, so the result is always a large positive sweep.
+export function reelDrumRotation(winnerIdx, n, turns = 6) {
+  if (n <= 0) return 0
+  const seg = 360 / n
+  return turns * 360 - winnerIdx * seg
+}
+
+// Price Is Right flapper motion. Pegs sit on the segment boundaries; as each peg
+// sweeps past the top it pushes the flapper aside, then the flapper snaps back and
+// waits for the next peg. Returns the deflection as a fraction in [0, 1] (0 = at
+// rest, 1 = fully pushed) for the wheel's current `rotation`. `contact` is the
+// share of a segment over which a peg is in contact with the flapper.
+//
+// The result is a function of rotation (not time), so the flap rate follows the
+// wheel's speed automatically — fast at the start, slowing as it eases to a stop.
+// Periodic with `segAngle`: flapperDeflection(r + segAngle, segAngle) === the value
+// at r.
+export function flapperDeflection(rotation, segAngle, contact = 0.45) {
+  if (!(segAngle > 0) || !(contact > 0)) return 0
+  let frac = (rotation / segAngle) % 1
+  if (frac < 0) frac += 1
+  // Within the contact window the flapper rises from rest to fully deflected; the
+  // instant the peg clears the tip it snaps back to rest until the next peg.
+  if (frac >= contact) return 0
+  return frac / contact
+}

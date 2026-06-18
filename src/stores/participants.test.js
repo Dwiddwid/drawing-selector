@@ -415,7 +415,7 @@ describe('participant store', () => {
       expect(store.spinning).toBe(false)
     })
 
-    it.each(['classic', 'wheel', 'reel'])(
+    it.each(['classic', 'wheel'])(
       'runs to completion under the %s animation style',
       (style) => {
         const store = useParticipantStore()
@@ -452,7 +452,7 @@ describe('participant store', () => {
 
   describe('animation timing table', () => {
     it('exposes a timing entry for every supported style', () => {
-      for (const style of ['classic', 'wheel', 'reel']) {
+      for (const style of ['classic', 'wheel']) {
         const t = ANIMATION_TIMING[style]
         expect(t).toBeDefined()
         expect(t.baseDelay).toBeGreaterThan(0)

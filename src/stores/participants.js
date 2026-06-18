@@ -21,7 +21,6 @@ function readJSON(key, fallback) {
 export const ANIMATION_TIMING = {
   classic: { baseDelay: 10, step: 50, maxDelay: 500, minRandom: 300 },
   wheel: { baseDelay: 30, step: 25, maxDelay: 750, minRandom: 200 },
-  reel: { baseDelay: 15, step: 35, maxDelay: 600, minRandom: 250 },
 }
 
 export const useParticipantStore = defineStore('participantStore', {

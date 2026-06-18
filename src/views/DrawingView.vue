@@ -7,6 +7,7 @@ import { onChannelMessage } from '../utils/sync.js'
 import { celebrate } from '../utils/celebration.js'
 import { buildWheelSegments, wheelColorsFromTheme } from '../utils/wheel.js'
 import WheelSpinner from '../components/WheelSpinner.vue'
+import PriceIsRightWheel from '../components/PriceIsRightWheel.vue'
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
@@ -16,6 +17,12 @@ const isWheel = computed(
   () => settings.animationStyle === 'wheel' || settings.animationStyle === 'wheel-giant',
 )
 const isGiantWheel = computed(() => settings.animationStyle === 'wheel-giant')
+// 'reel' is the Price Is Right wheel viewed on edge — a giant vertical drum of
+// names. Same honest pre-pick reveal flow, its own component.
+const isPriceWheel = computed(() => settings.animationStyle === 'reel')
+// Styles that take over the whole viewport (full-bleed backdrop + overlay layer)
+// rather than sitting as a centered element with branding stacked around it.
+const isFullViewport = computed(() => isGiantWheel.value || isPriceWheel.value)
 
 // Wheel-spin state. The visual wheel needs to know the winner before the
 // pointer can land on them, so for that style we pre-pick from the store,
@@ -30,7 +37,7 @@ function startDraw() {
   // honors the admin's current Draw Filter selection. In single-window mode
   // the store is already up-to-date, so this is a cheap no-op in that case.
   store.loadFilters()
-  if (isWheel.value) {
+  if (isWheel.value || isPriceWheel.value) {
     if (!store.beginVisualSpin()) return
     const idx = store.pickWinnerIndex()
     if (idx < 0) {
@@ -126,21 +133,21 @@ watch(
   <v-main>
     <v-container fluid fill-height class="text-center d-flex flex-column align-center justify-center fill-height">
       <img
-        v-if="settings.theme.logo && !isGiantWheel && introVisible"
+        v-if="settings.theme.logo && !isFullViewport && introVisible"
         :src="settings.theme.logo"
         alt="Event logo"
         class="event-logo mb-4"
       />
-      <h1 v-if="titleEnabled && !isGiantWheel && introVisible" class="event-title mb-4">
+      <h1 v-if="titleEnabled && !isFullViewport && introVisible" class="event-title mb-4">
         {{ settings.theme.eventTitle }}
       </h1>
 
-      <!-- Giant wheel: a full-viewport wheel backdrop (its center is below the
-           screen so only the top arc shows) with the title, status, winner card
-           and GO button layered on top — edge to edge, no surrounding gaps. -->
-      <template v-if="isGiantWheel">
+      <!-- Full-viewport reveals (giant wheel + Price Is Right vertical drum): a
+           full-bleed backdrop with the title, status, winner card and GO button
+           layered on top — edge to edge, no surrounding gaps. -->
+      <template v-if="isFullViewport">
         <WheelSpinner
-          v-if="wheelSegments.length"
+          v-if="isGiantWheel && wheelSegments.length"
           :segments="wheelSegments"
           :winner-segment-idx="wheelWinnerSegmentIdx"
           :active="wheelActive"
@@ -148,6 +155,15 @@ watch(
           :pointer-color="settings.spinner.pointerColor"
           :giant-zoom="settings.spinner.giantZoom"
           giant
+          @done="onWheelDone"
+        />
+        <PriceIsRightWheel
+          v-else-if="isPriceWheel && wheelSegments.length"
+          :segments="wheelSegments"
+          :winner-segment-idx="wheelWinnerSegmentIdx"
+          :active="wheelActive"
+          :colors="wheelColors"
+          :pointer-color="settings.spinner.pointerColor"
           @done="onWheelDone"
         />
 
@@ -341,10 +357,10 @@ button {
 .event-title {
   color: var(--app-headline, rgb(var(--v-theme-primary)));
 }
-/* Classic / reel card text. The winner name is the headline; detail rows are
-   smaller. Both are bounded with clamp() (keyed off vmin, not vw) so they stay
-   large on a projector but never outgrow the card and wrap/clip the way a flat
-   8vw rule did on wide screens. */
+/* Classic card text. The winner name is the headline; detail rows are smaller.
+   Both are bounded with clamp() (keyed off vmin, not vw) so they stay large on a
+   projector but never outgrow the card and wrap/clip the way a flat 8vw rule did
+   on wide screens. */
 .scaled-text {
   max-width: 88vw;
   margin-inline: auto;
@@ -466,10 +482,9 @@ button {
   background: var(--app-winner-card-bg, rgb(var(--v-theme-surface)));
   color: var(--app-winner-card-text, rgb(var(--v-theme-primary)));
 }
-/* Keep the classic/reel reveal card within the viewport so long names wrap
+/* Keep the classic reveal card within the viewport so long names wrap
    inside it instead of overflowing. */
-.winner-card.animation-classic,
-.winner-card.animation-reel {
+.winner-card.animation-classic {
   max-width: 92vw;
 }
 
@@ -482,17 +497,7 @@ button {
   color: var(--app-winner-card-text, rgb(var(--v-theme-primary)));
 }
 
-/* Reel style — vertical sliding reveal during the spin. */
 .spin-name {
   display: inline-block;
-}
-.animation-reel .spin-name.spinning {
-  animation: spin-reel 0.25s ease-in-out infinite;
-}
-@keyframes spin-reel {
-  0% { transform: translateY(-30%); opacity: 0; }
-  20% { opacity: 1; }
-  80% { opacity: 1; }
-  100% { transform: translateY(30%); opacity: 0; }
 }
 </style>
