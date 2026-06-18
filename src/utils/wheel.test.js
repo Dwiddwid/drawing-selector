@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   buildWheelSegments,
   targetRotation,
+  reelDrumRotation,
+  flapperDeflection,
   MAX_WHEEL_SEGMENTS,
   DEFAULT_WHEEL_COLORS,
   wheelColorsFromTheme,
@@ -144,5 +146,74 @@ describe('targetRotation', () => {
 
   it('returns 0 for a zero-segment wheel', () => {
     expect(targetRotation(0, 0)).toBe(0)
+  })
+})
+
+describe('reelDrumRotation', () => {
+  it('lands the winner panel squarely facing front (a whole number of turns)', () => {
+    const n = 10
+    const seg = 360 / n
+    for (const w of [0, 3, 9]) {
+      const rot = reelDrumRotation(w, n)
+      // The winner panel is mounted at w·seg; after rotating the drum by `rot`
+      // its net orientation must be a multiple of 360 (face-front).
+      expect(((rot + w * seg) % 360 + 360) % 360).toBeCloseTo(0, 6)
+    }
+  })
+
+  it('adds the requested number of full turns', () => {
+    const a = reelDrumRotation(2, 8, 0)
+    const b = reelDrumRotation(2, 8, 6)
+    expect(b - a).toBeCloseTo(360 * 6, 6)
+  })
+
+  it('returns a positive sweep with the default turns', () => {
+    expect(reelDrumRotation(7, 8)).toBeGreaterThan(0)
+  })
+
+  it('returns 0 for a degenerate panel count', () => {
+    expect(reelDrumRotation(0, 0)).toBe(0)
+  })
+})
+
+describe('flapperDeflection', () => {
+  const segAngle = (Math.PI * 2) / 12
+
+  it('is at rest when a peg sits exactly at the top', () => {
+    expect(flapperDeflection(0, segAngle)).toBe(0)
+    expect(flapperDeflection(segAngle, segAngle)).toBeCloseTo(0, 6)
+  })
+
+  it('rises from rest to fully deflected across the contact window, then snaps back', () => {
+    const contact = 0.45
+    // Mid-contact → roughly half deflected.
+    expect(flapperDeflection(segAngle * (contact / 2), segAngle, contact)).toBeCloseTo(0.5, 6)
+    // Just before the peg clears the tip → nearly full deflection.
+    expect(
+      flapperDeflection(segAngle * (contact - 0.001), segAngle, contact),
+    ).toBeGreaterThan(0.99)
+    // The instant the peg clears → snapped back to rest.
+    expect(flapperDeflection(segAngle * contact, segAngle, contact)).toBe(0)
+    // Between pegs the flapper waits at rest.
+    expect(flapperDeflection(segAngle * 0.8, segAngle, contact)).toBe(0)
+  })
+
+  it('is periodic with the segment angle', () => {
+    const r = segAngle * 0.2
+    expect(flapperDeflection(r + segAngle * 3, segAngle)).toBeCloseTo(
+      flapperDeflection(r, segAngle),
+      6,
+    )
+  })
+
+  it('handles negative rotation (wheel never spins backwards, but stay safe)', () => {
+    const v = flapperDeflection(-segAngle * 0.2, segAngle)
+    expect(v).toBeGreaterThanOrEqual(0)
+    expect(v).toBeLessThanOrEqual(1)
+  })
+
+  it('returns 0 for a degenerate segment angle', () => {
+    expect(flapperDeflection(1, 0)).toBe(0)
+    expect(flapperDeflection(1, -1)).toBe(0)
   })
 })
