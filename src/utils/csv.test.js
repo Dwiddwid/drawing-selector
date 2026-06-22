@@ -4,6 +4,7 @@ import {
   suggestMapping,
   normalizeWithMapping,
   participantKey,
+  entryWeight,
   migrateParticipant,
   migrateParticipants,
 } from './csv.js'
@@ -68,6 +69,13 @@ describe('suggestMapping', () => {
     const m = suggestMapping(['Color', 'Size'])
     expect(m.every((e) => e.role === 'detail')).toBe(true)
   })
+
+  it('auto-detects id and entries columns', () => {
+    const m = suggestMapping(['ID', 'Name', 'Days Attended'])
+    expect(m[0]).toMatchObject({ key: 'ID', role: 'id' })
+    expect(m[1]).toMatchObject({ key: 'Name', role: 'name' })
+    expect(m[2]).toMatchObject({ key: 'Days Attended', role: 'entries' })
+  })
 })
 
 describe('normalizeWithMapping', () => {
@@ -128,6 +136,68 @@ describe('normalizeWithMapping', () => {
     expect(list[0].id).toBeTruthy()
     expect(list[0].id).not.toBe(list[1].id)
   })
+
+  it('defaults entries to 1 when no entries column is mapped', () => {
+    const { rows } = parseCsv('Name\nAda')
+    const list = normalizeWithMapping(rows, mapping([{ key: 'Name', role: 'name' }]))
+    expect(list[0].entries).toBe(1)
+    expect(list[0].externalId).toBeUndefined()
+  })
+
+  it('uses an id column as identity and keeps it out of fields', () => {
+    const { rows } = parseCsv('UserId,Name\nu-7,Ada')
+    const list = normalizeWithMapping(
+      rows,
+      mapping([
+        { key: 'UserId', role: 'id' },
+        { key: 'Name', role: 'name' },
+      ]),
+    )
+    expect(list[0].id).toBe('u-7')
+    expect(list[0].externalId).toBe(true)
+    expect(list[0].fields).toEqual({ Name: 'Ada' })
+  })
+
+  it('falls back to a generated id when the id cell is blank', () => {
+    const { rows } = parseCsv('UserId,Name\n,Ada')
+    const list = normalizeWithMapping(
+      rows,
+      mapping([
+        { key: 'UserId', role: 'id' },
+        { key: 'Name', role: 'name' },
+      ]),
+    )
+    expect(list[0].id).toBeTruthy()
+    expect(list[0].externalId).toBeUndefined()
+  })
+
+  it('parses the entries column (blank→1, 0→0, "3"→3, junk→1) and hides it', () => {
+    const { rows } = parseCsv('Name,Days\nAda,3\nAlan,0\nGrace,\nBob,xyz')
+    const list = normalizeWithMapping(
+      rows,
+      mapping([
+        { key: 'Name', role: 'name' },
+        { key: 'Days', role: 'entries' },
+      ]),
+    )
+    expect(list.map((p) => p.entries)).toEqual([3, 0, 1, 1])
+    expect(list[0].fields).toEqual({ Name: 'Ada' })
+  })
+})
+
+describe('entryWeight', () => {
+  it('defaults to 1 for missing or invalid entries', () => {
+    expect(entryWeight({})).toBe(1)
+    expect(entryWeight({ entries: undefined })).toBe(1)
+    expect(entryWeight({ entries: NaN })).toBe(1)
+  })
+
+  it('floors and clamps a valid count at 0', () => {
+    expect(entryWeight({ entries: 3 })).toBe(3)
+    expect(entryWeight({ entries: 0 })).toBe(0)
+    expect(entryWeight({ entries: 2.9 })).toBe(2)
+    expect(entryWeight({ entries: -5 })).toBe(0)
+  })
 })
 
 describe('participantKey', () => {
@@ -147,6 +217,27 @@ describe('participantKey', () => {
     const a = { fields: { Name: 'Ada', Bus: '1' } }
     const b = { fields: { Name: 'Ada', Bus: '2' } }
     expect(participantKey(a)).not.toBe(participantKey(b))
+  })
+
+  it('keys on the id when externalId is set', () => {
+    const a = { id: 'u-1', externalId: true, fields: { Name: 'John Smith' } }
+    const b = { id: 'u-2', externalId: true, fields: { Name: 'John Smith' } }
+    // Same name, different imported ids → distinct identities.
+    expect(participantKey(a)).not.toBe(participantKey(b))
+    expect(participantKey(a)).toBe('id=u-1')
+  })
+
+  it('treats imported ids as case-sensitive identities', () => {
+    const a = { id: 'U1', externalId: true, fields: { Name: 'John Smith' } }
+    const b = { id: 'u1', externalId: true, fields: { Name: 'John Smith' } }
+    expect(participantKey(a)).toBe('id=U1')
+    expect(participantKey(a)).not.toBe(participantKey(b))
+  })
+
+  it('is stable for the same imported id regardless of fields', () => {
+    const a = { id: 'u-1', externalId: true, fields: { Name: 'Ada', Bus: '1' } }
+    const b = { id: 'u-1', externalId: true, fields: { Name: 'Ada', Bus: '2' } }
+    expect(participantKey(a)).toBe(participantKey(b))
   })
 })
 

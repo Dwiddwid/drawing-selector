@@ -71,24 +71,28 @@ function onMappingConfirm({ mapping, mode }) {
     notify('No participants found with that mapping.', 'warning')
     return
   }
-  const { imported, skipped } = store.importParticipants(list, mode)
+  const { imported, skipped, merged } = store.importParticipants(list, mode)
   // Register any new columns so they show up in the winner-display editor.
   settings.syncFields(collectFieldKeys(store.getParticipants))
   // Apply the headline (name) fields chosen in the dialog. Replace swaps them
-  // out; append unions with whatever is already configured.
+  // out; append/accumulate union with whatever is already configured.
   const nameKeys = mapping
     .filter((m) => m.include && m.role === 'name')
     .map((m) => (m.label || m.key).trim())
-  if (mode === 'append') {
-    settings.setNameKeys([...new Set([...settings.winnerDisplay.nameKeys, ...nameKeys])])
-  } else {
+  if (mode === 'replace') {
     settings.setNameKeys(nameKeys)
+  } else {
+    settings.setNameKeys([...new Set([...settings.winnerDisplay.nameKeys, ...nameKeys])])
   }
-  notify(
-    `${mode === 'append' ? 'Added' : 'Imported'} ${imported} participant${imported === 1 ? '' : 's'}` +
-      (skipped ? ` (skipped ${skipped} duplicate${skipped === 1 ? '' : 's'})` : ''),
-    'success',
-  )
+  // Build a message that reads naturally whether the import only added new
+  // people, only topped up entries for returning ones (accumulate), or both.
+  const verb = mode === 'replace' ? 'Imported' : 'Added'
+  const parts = []
+  if (imported || !merged) parts.push(`${imported} participant${imported === 1 ? '' : 's'}`)
+  if (merged) parts.push(`entries to ${merged} returning participant${merged === 1 ? '' : 's'}`)
+  let message = `${verb} ${parts.join(' and ')}`
+  if (skipped) message += ` (skipped ${skipped} duplicate${skipped === 1 ? '' : 's'})`
+  notify(message, 'success')
   resetFileInput()
 }
 
@@ -165,6 +169,7 @@ function exportState() {
     animationStyle: settings.animationStyle,
     celebration: settings.celebration,
     spinner: settings.spinner,
+    participantList: settings.participantList,
   })
 }
 
@@ -185,6 +190,7 @@ function importStateFile() {
         settings.setAnimationStyle(merged.animationStyle)
         settings.updateCelebration(merged.celebration)
         settings.updateSpinner(merged.spinner)
+        settings.updateParticipantList(merged.participantList)
       }
       notify(
         `Restored ${state.candidates.length} candidate${state.candidates.length === 1 ? '' : 's'} and ${state.winners.length} winner${state.winners.length === 1 ? '' : 's'}.`,

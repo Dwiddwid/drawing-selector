@@ -63,7 +63,7 @@ describe('participant store', () => {
 
     const result = store.importParticipants([person('Ada', 'Lovelace'), person('Alan', 'Turing')])
 
-    expect(result).toEqual({ imported: 1, skipped: 1, mode: 'replace' })
+    expect(result).toEqual({ imported: 1, skipped: 1, merged: 0, mode: 'replace' })
     expect(store.candidates).toHaveLength(1)
     expect(first(store.candidates[0])).toBe('Alan')
     expect(JSON.parse(localStorage.getItem('candidates'))).toHaveLength(1)
@@ -79,7 +79,7 @@ describe('participant store', () => {
       'append',
     )
 
-    expect(result).toEqual({ imported: 1, skipped: 2, mode: 'append' })
+    expect(result).toEqual({ imported: 1, skipped: 2, merged: 0, mode: 'append' })
     expect(store.candidates.map(first)).toEqual(['Ada', 'Alan'])
   })
 
@@ -89,7 +89,7 @@ describe('participant store', () => {
 
     const result = store.importParticipants([person('Alan', 'Turing')], 'replace')
 
-    expect(result).toEqual({ imported: 1, skipped: 0, mode: 'replace' })
+    expect(result).toEqual({ imported: 1, skipped: 0, merged: 0, mode: 'replace' })
     expect(store.candidates.map(first)).toEqual(['Alan'])
   })
 
@@ -160,6 +160,14 @@ describe('participant store', () => {
       const store = useParticipantStore()
       store.addCandidate()
       expect(store.candidates[0].fields).toEqual({})
+    })
+
+    it('defaults entries to 1 but honors an explicit count', () => {
+      const store = useParticipantStore()
+      store.addCandidate({ Name: 'Ada' })
+      store.addCandidate({ Name: 'Grace' }, 5)
+      expect(store.candidates[0].entries).toBe(1)
+      expect(store.candidates[1].entries).toBe(5)
     })
   })
 
@@ -676,6 +684,104 @@ describe('participant store', () => {
       // filteredCandidates should now return the full imported pool.
       expect(store.filteredCandidates).toHaveLength(1)
       expect(first(store.filteredCandidates[0])).toBe('Grace')
+    })
+  })
+
+  describe('weighted entries', () => {
+    const weighted = (name, entries, extra = {}) => ({
+      id: name,
+      fields: { Name: name, ...extra },
+      entries,
+    })
+
+    it('totalEntries sums per-candidate weights over the filtered pool', () => {
+      const store = useParticipantStore()
+      store.candidates = [weighted('A', 1), weighted('B', 3), weighted('C', 0)]
+      expect(store.totalEntries).toBe(4)
+    })
+
+    it('weightedPick lands in the band proportional to entries', () => {
+      const store = useParticipantStore()
+      store.candidates = [weighted('A', 1), weighted('B', 3)] // total 4
+      const rnd = vi.spyOn(Math, 'random')
+      rnd.mockReturnValue(0.1) // r = 0.4 → A
+      expect(store.weightedPick(store.candidates).id).toBe('A')
+      rnd.mockReturnValue(0.5) // r = 2.0 → B
+      expect(store.weightedPick(store.candidates).id).toBe('B')
+      rnd.mockRestore()
+    })
+
+    it('skews draws toward higher-entry candidates', () => {
+      const store = useParticipantStore()
+      store.candidates = [weighted('Low', 1), weighted('High', 9)] // 10% vs 90%
+      const counts = { Low: 0, High: 0 }
+      for (let i = 0; i < 2000; i++) counts[store.weightedPick(store.candidates).id] += 1
+      expect(counts.High).toBeGreaterThan(counts.Low * 3)
+    })
+
+    it('never picks a 0-entry candidate', () => {
+      const store = useParticipantStore()
+      store.candidates = [weighted('Zero', 0), weighted('One', 1)]
+      for (let i = 0; i < 100; i++) {
+        expect(store.weightedPick(store.candidates).id).toBe('One')
+      }
+    })
+
+    it('returns null and bails the draw when total entries is 0', () => {
+      const store = useParticipantStore()
+      store.candidates = [weighted('Zero', 0)]
+      expect(store.weightedPick(store.candidates)).toBeNull()
+      expect(store.totalEntries).toBe(0)
+      expect(store.selectRandomCandidate()).toBe(false)
+      expect(store.beginVisualSpin()).toBe(false)
+      store.pointToRandomCandidate()
+      expect(store.index).toBe(-1)
+      expect(store.pickWinnerIndex()).toBe(-1)
+    })
+
+    it('treats a missing entries property as a single entry (uniform draw)', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      expect(store.totalEntries).toBe(2)
+    })
+  })
+
+  describe('importParticipants accumulate', () => {
+    const checkin = (name, entries = 1) => ({ id: name, fields: { Name: name }, entries })
+
+    it('adds entries to a returning person matched by content key', () => {
+      const store = useParticipantStore()
+      store.importParticipants([checkin('Ada'), checkin('Alan')], 'replace')
+      const result = store.importParticipants([checkin('Ada'), checkin('Grace')], 'accumulate')
+      expect(result).toMatchObject({ imported: 1, merged: 1, skipped: 0, mode: 'accumulate' })
+      const ada = store.candidates.find((c) => c.fields.Name === 'Ada')
+      expect(ada.entries).toBe(2)
+      expect(store.candidates.map((c) => c.fields.Name)).toEqual(['Ada', 'Alan', 'Grace'])
+    })
+
+    it('matches returning people by imported id, not by displayed fields', () => {
+      const store = useParticipantStore()
+      const day1 = [{ id: 'u1', externalId: true, fields: { Name: 'John Smith' }, entries: 1 }]
+      store.importParticipants(day1, 'replace')
+      // Same id, different fields → still the same person.
+      const day2 = [
+        { id: 'u1', externalId: true, fields: { Name: 'John Smith', Note: 'x' }, entries: 1 },
+      ]
+      const result = store.importParticipants(day2, 'accumulate')
+      expect(result.merged).toBe(1)
+      expect(store.candidates).toHaveLength(1)
+      expect(store.candidates[0].entries).toBe(2)
+    })
+
+    it('skips prior winners rather than accumulating onto them', () => {
+      const store = useParticipantStore()
+      store.candidates = [checkin('Ada')]
+      store.winners = [checkin('Grace')]
+      const result = store.importParticipants([checkin('Grace'), checkin('Ada')], 'accumulate')
+      expect(result.skipped).toBe(1) // Grace (a prior winner)
+      expect(result.merged).toBe(1) // Ada
+      const ada = store.candidates.find((c) => c.fields.Name === 'Ada')
+      expect(ada.entries).toBe(2)
     })
   })
 })

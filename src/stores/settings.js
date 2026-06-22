@@ -53,6 +53,10 @@ export function defaultSettings() {
       confetti: true,
       sound: true,
     },
+    // Participant list display options.
+    participantList: {
+      hideZeroEntries: false, // when true, 0-entry participants are hidden from the admin list
+    },
     // Wheel-spinner appearance. Size/position/offsets apply to the standard
     // wheel only — the giant wheel is full-viewport by design.
     spinner: {
@@ -151,6 +155,7 @@ export function mergeSettings(stored) {
       : base.animationStyle,
     celebration: { ...base.celebration, ...(stored.celebration || {}) },
     spinner,
+    participantList: { ...base.participantList, ...(stored.participantList || {}) },
   }
 }
 
@@ -165,6 +170,7 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.animationStyle = merged.animationStyle
       this.celebration = merged.celebration
       this.spinner = merged.spinner
+      this.participantList = merged.participantList
     },
     persist() {
       try {
@@ -177,6 +183,7 @@ export const useSettingsStore = defineStore('settingsStore', {
             animationStyle: this.animationStyle,
             celebration: this.celebration,
             spinner: this.spinner,
+            participantList: this.participantList,
           }),
         )
       } catch {
@@ -263,6 +270,10 @@ export const useSettingsStore = defineStore('settingsStore', {
       ;[fields[idx], fields[swap]] = [fields[swap], fields[idx]]
       this.persist()
     },
+    updateParticipantList(partial) {
+      this.participantList = { ...this.participantList, ...partial }
+      this.persist()
+    },
     resetSettings() {
       const fresh = defaultSettings()
       this.isPro = fresh.isPro
@@ -271,6 +282,7 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.animationStyle = fresh.animationStyle
       this.celebration = fresh.celebration
       this.spinner = fresh.spinner
+      this.participantList = fresh.participantList
       localStorage.removeItem(SETTINGS_KEY)
       broadcastSync('settings')
     },

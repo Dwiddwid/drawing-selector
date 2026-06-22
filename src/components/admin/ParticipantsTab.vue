@@ -4,6 +4,7 @@ import { useParticipantStore } from '../../stores/participants.js'
 import { useSettingsStore } from '../../stores/settings.js'
 import { filterParticipants } from '../../utils/search.js'
 import { formatWinnerName, collectFieldKeys } from '../../utils/winnerDisplay.js'
+import { entryWeight } from '../../utils/csv.js'
 
 const emit = defineEmits(['notify'])
 
@@ -23,7 +24,16 @@ function labelFor(key) {
 function colSpan(count) {
   return Math.max(2, Math.floor(10 / count))
 }
+// Narrower budget for the add row, which also hosts the entries + Add columns.
+function addColSpan(count) {
+  return Math.max(2, Math.floor(8 / count))
+}
 const displayName = (p) => formatWinnerName(p, settings.winnerDisplay) || '(no name)'
+const entriesOf = (p) => entryWeight(p)
+
+// Whether any candidate carries a non-default entry count — drives whether the
+// per-row ×N badge and the total-entries summary are worth showing.
+const hasWeights = computed(() => store.candidates.some((c) => entryWeight(c) !== 1))
 
 // Search + pagination keep the list usable with large pools (hundreds or
 // thousands of rows) instead of rendering everything at once.
@@ -31,7 +41,13 @@ const PAGE_SIZE = 50
 const search = ref('')
 const page = ref(1)
 
-const matchedCandidates = computed(() => filterParticipants(store.candidates, search.value))
+const matchedCandidates = computed(() => {
+  let list = filterParticipants(store.candidates, search.value)
+  if (settings.participantList.hideZeroEntries) {
+    list = list.filter((p) => entryWeight(p) !== 0)
+  }
+  return list
+})
 const pageCount = computed(() => Math.max(1, Math.ceil(matchedCandidates.value.length / PAGE_SIZE)))
 const pagedCandidates = computed(() =>
   matchedCandidates.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
@@ -47,11 +63,13 @@ watch(pageCount, (count) => {
 
 // Add/edit inputs keyed by name field. Reset when the set of name fields changes.
 const newFields = ref({})
+const newEntries = ref(1)
 const editingId = ref(null)
 const editFields = ref({})
 
 watch(nameKeys, () => {
   newFields.value = {}
+  newEntries.value = 1
 })
 
 const pendingKey = ref(null)
@@ -71,11 +89,14 @@ const availableFilterValues = computed(() =>
     : [],
 )
 
+const editEntries = ref(1)
+
 function startEdit(participant) {
   editingId.value = participant.id
   const e = {}
   for (const k of nameKeys.value) e[k] = participant.fields?.[k] ?? ''
   editFields.value = e
+  editEntries.value = entryWeight(participant)
 }
 
 function saveEdit() {
@@ -86,7 +107,8 @@ function saveEdit() {
     emit('notify', 'Enter at least one name field.', 'warning')
     return
   }
-  store.updateCandidate(editingId.value, { fields })
+  const entries = Math.max(0, Math.floor(Number(editEntries.value) || 0))
+  store.updateCandidate(editingId.value, { fields, entries })
   editingId.value = null
 }
 
@@ -104,8 +126,10 @@ function addParticipant() {
     emit('notify', 'Enter at least one name field.', 'warning')
     return
   }
-  store.addCandidate(fields)
+  const entries = Math.max(0, Math.floor(Number(newEntries.value) || 0))
+  store.addCandidate(fields, entries)
   newFields.value = {}
+  newEntries.value = 1
 }
 
 function onPendingKeyChange(key) {
@@ -138,7 +162,8 @@ function addFilter() {
       <p class="text-body-2 text-medium-emphasis mb-1">
         {{ matchedCandidates.length }} of {{ store.candidates.length }} candidate{{
           store.candidates.length === 1 ? '' : 's'
-        }}<template v-if="search"> match</template>
+        }}<template v-if="search"> match</template><template v-if="hasWeights">
+          · {{ store.totalEntries }} total entr{{ store.totalEntries === 1 ? 'y' : 'ies' }}</template>
       </p>
 
       <v-list lines="one" density="compact">
@@ -159,10 +184,31 @@ function addFilter() {
                   @keyup.escape="cancelEdit"
                 />
               </v-col>
+              <v-col cols="2">
+                <v-text-field
+                  v-model.number="editEntries"
+                  label="Entries"
+                  type="number"
+                  min="0"
+                  density="compact"
+                  hide-details
+                  @keyup.enter="saveEdit"
+                  @keyup.escape="cancelEdit"
+                />
+              </v-col>
             </v-row>
           </template>
           <template v-else>
             {{ displayName(participant) }}
+            <v-chip
+              v-if="entriesOf(participant) !== 1"
+              size="x-small"
+              variant="tonal"
+              color="primary"
+              class="ml-2"
+            >
+              ×{{ entriesOf(participant) }}
+            </v-chip>
           </template>
 
           <template v-slot:append>
@@ -221,11 +267,22 @@ function addFilter() {
         class="mt-1"
       />
 
-      <v-row class="mt-2" dense>
-        <v-col v-for="key in nameKeys" :key="key" :cols="colSpan(nameKeys.length)">
+      <v-row class="mt-2" dense align="center">
+        <v-col v-for="key in nameKeys" :key="key" :cols="addColSpan(nameKeys.length)">
           <v-text-field
             v-model="newFields[key]"
             :label="labelFor(key)"
+            density="compact"
+            hide-details
+            @keyup.enter="addParticipant"
+          />
+        </v-col>
+        <v-col cols="2">
+          <v-text-field
+            v-model.number="newEntries"
+            label="Entries"
+            type="number"
+            min="0"
             density="compact"
             hide-details
             @keyup.enter="addParticipant"
