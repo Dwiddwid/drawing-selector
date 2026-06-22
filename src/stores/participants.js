@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { participantKey, uid, migrateParticipants } from '../utils/csv.js'
+import { participantKey, uid, migrateParticipants, entryWeight } from '../utils/csv.js'
 import { broadcastSync } from '../utils/sync.js'
 
 function readJSON(key, fallback) {
@@ -57,6 +57,12 @@ export const useParticipantStore = defineStore('participantStore', {
         state.filters.every((f) => c.fields?.[f.key] === f.value),
       )
     },
+    // Total number of draw entries across the (filtered) pool, honoring each
+    // participant's weight. Equals the candidate count when every weight is 1.
+    // A pool with entries but a total of 0 is effectively un-drawable.
+    totalEntries() {
+      return this.filteredCandidates.reduce((sum, c) => sum + entryWeight(c), 0)
+    },
   },
   actions: {
     loadFromStorage() {
@@ -93,19 +99,34 @@ export const useParticipantStore = defineStore('participantStore', {
     // Import a list of participants, excluding anyone who has already won.
     //   mode 'replace' (default) — the list becomes the new candidate pool.
     //   mode 'append' — add to the current pool, also skipping in-pool dups.
+    //   mode 'accumulate' — add to the pool, but a row matching an existing
+    //     candidate (by identity) *adds its entries* onto that candidate rather
+    //     than being skipped. This is the multi-day check-in path: import each
+    //     day's attendee list and returning people build up extra entries.
     importParticipants(list, mode = 'replace') {
       const winnerKeys = new Set(this.winners.map(participantKey))
-      const base = mode === 'append' ? [...this.candidates] : []
-      const seen = new Set(base.map(participantKey))
+      const base = mode === 'append' || mode === 'accumulate' ? [...this.candidates] : []
+      const byKey = new Map(base.map((p) => [participantKey(p), p]))
       const added = []
       let skipped = 0
+      let merged = 0
       for (const p of list) {
         const key = participantKey(p)
-        if (winnerKeys.has(key) || seen.has(key)) {
+        if (winnerKeys.has(key)) {
           skipped += 1
           continue
         }
-        seen.add(key)
+        const existing = byKey.get(key)
+        if (existing) {
+          if (mode === 'accumulate') {
+            existing.entries = entryWeight(existing) + entryWeight(p)
+            merged += 1
+          } else {
+            skipped += 1
+          }
+          continue
+        }
+        byKey.set(key, p)
         added.push(p)
       }
       this.candidates = [...base, ...added]
@@ -113,7 +134,7 @@ export const useParticipantStore = defineStore('participantStore', {
       this.selected = null
       this.lastResetCandidates = null
       this.persistCandidates()
-      return { imported: added.length, skipped, mode }
+      return { imported: added.length, skipped, merged, mode }
     },
     resetCandidates() {
       // Snapshot the current list (and active filters) so the operator can
@@ -172,8 +193,8 @@ export const useParticipantStore = defineStore('participantStore', {
       this.lastResetCandidates = null
       this.lastResetWinners = null
     },
-    addCandidate(fields = {}) {
-      this.candidates.push({ id: uid(), fields: { ...fields } })
+    addCandidate(fields = {}, entries = 1) {
+      this.candidates.push({ id: uid(), fields: { ...fields }, entries })
       this.persistCandidates()
     },
     removeCandidate(id) {
@@ -183,10 +204,12 @@ export const useParticipantStore = defineStore('participantStore', {
         this.persistCandidates()
       }
     },
-    updateCandidate(id, { fields } = {}) {
+    updateCandidate(id, { fields, entries } = {}) {
       const c = this.candidates.find((c) => c.id === id)
-      if (!c || !fields) return
-      c.fields = { ...c.fields, ...fields }
+      if (!c) return
+      if (fields) c.fields = { ...c.fields, ...fields }
+      if (entries !== undefined) c.entries = entries
+      if (!fields && entries === undefined) return
       this.persistCandidates()
     },
     addFilter(key, value) {
@@ -221,10 +244,22 @@ export const useParticipantStore = defineStore('participantStore', {
       this.persistWinners()
       this.persistFilters()
     },
+    // Weighted random pick over a pool, honoring each participant's entry count.
+    // Returns null when the pool is empty or every weight is 0. With all weights
+    // 1 this is a plain uniform pick, identical to the original behavior.
+    weightedPick(pool) {
+      const total = pool.reduce((sum, c) => sum + entryWeight(c), 0)
+      if (total <= 0) return null
+      let r = Math.random() * total
+      for (const c of pool) {
+        r -= entryWeight(c)
+        if (r < 0) return c
+      }
+      return pool[pool.length - 1]
+    },
     pointToRandomCandidate() {
-      const pool = this.filteredCandidates
-      if (pool.length === 0) { this.index = -1; return }
-      const pick = pool[Math.floor(Math.random() * pool.length)]
+      const pick = this.weightedPick(this.filteredCandidates)
+      if (!pick) { this.index = -1; return }
       this.index = this.candidates.findIndex((c) => c.id === pick.id)
     },
     // Move the currently pointed-at candidate into winners (as a copy) and
@@ -244,9 +279,8 @@ export const useParticipantStore = defineStore('participantStore', {
     // animations (e.g. the wheel) that need to know who the winner is before
     // the on-screen reveal can land on them. Returns -1 if the pool is empty.
     pickWinnerIndex() {
-      const pool = this.filteredCandidates
-      if (pool.length === 0) return -1
-      const pick = pool[Math.floor(Math.random() * pool.length)]
+      const pick = this.weightedPick(this.filteredCandidates)
+      if (!pick) return -1
       return this.candidates.findIndex((c) => c.id === pick.id)
     },
     // Enter "spinning" without running the timer-driven slot-machine loop.
@@ -254,7 +288,7 @@ export const useParticipantStore = defineStore('participantStore', {
     // spin via commitAt().
     beginVisualSpin() {
       if (this.spinning) return false
-      if (this.filteredCandidates.length === 0) return false
+      if (this.totalEntries === 0) return false
       this.spinning = true
       this.selected = null
       this.clearResetUndo()
@@ -276,7 +310,7 @@ export const useParticipantStore = defineStore('participantStore', {
     },
     selectRandomCandidate(style = 'classic') {
       if (this.spinning) return false
-      if (this.filteredCandidates.length === 0) return false
+      if (this.totalEntries === 0) return false
 
       const timing = ANIMATION_TIMING[style] ?? ANIMATION_TIMING.classic
       this.spinning = true

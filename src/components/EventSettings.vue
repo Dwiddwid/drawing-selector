@@ -392,6 +392,14 @@ function resetAll() {
               label="Show field labels (e.g. 'Grade: 3')"
               class="mb-2"
             />
+            <v-switch
+              :model-value="settings.participantList.hideZeroEntries"
+              @update:model-value="settings.updateParticipantList({ hideZeroEntries: $event })"
+              color="primary"
+              hide-details
+              label="Hide 0-entry participants from the list"
+              class="mb-2"
+            />
 
             <p v-if="settings.winnerDisplay.fields.length === 0" class="text-body-2 text-medium-emphasis">
               Import participants to choose which fields appear on the drawing screen and edit

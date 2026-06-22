@@ -13,8 +13,14 @@ const emit = defineEmits(['update:modelValue', 'confirm', 'cancel'])
 const roleOptions = [
   { title: 'Name / Title', value: 'name' },
   { title: 'Detail field', value: 'detail' },
+  { title: 'ID', value: 'id' },
+  { title: 'Entries / count', value: 'entries' },
   { title: 'Skip', value: 'skip' },
 ]
+
+// Roles that are identity/weight metadata, not display fields — their label is
+// irrelevant (they never render on the winner card).
+const META_ROLES = ['id', 'entries', 'skip']
 
 // Editable per-column mapping, seeded from the alias auto-detection whenever a
 // new file's headers arrive.
@@ -39,10 +45,11 @@ const sample = (key) => props.preview[0]?.[key] ?? ''
 const hasName = computed(() => mapping.value.some((m) => m.role === 'name'))
 
 // Warn when two included columns map to the same label (they'd overwrite).
+// Only name/detail columns become display fields, so only they can collide.
 const duplicateLabel = computed(() => {
   const seen = new Set()
   for (const m of mapping.value) {
-    if (m.role === 'skip') continue
+    if (m.role !== 'name' && m.role !== 'detail') continue
     const label = (m.label || m.key).trim().toLowerCase()
     if (seen.has(label)) return true
     seen.add(label)
@@ -50,7 +57,14 @@ const duplicateLabel = computed(() => {
   return false
 })
 
-const canImport = computed(() => hasName.value && !duplicateLabel.value)
+// At most one column may carry the id / entries role.
+const duplicateMeta = computed(() => {
+  const idCount = mapping.value.filter((m) => m.role === 'id').length
+  const entriesCount = mapping.value.filter((m) => m.role === 'entries').length
+  return idCount > 1 || entriesCount > 1
+})
+
+const canImport = computed(() => hasName.value && !duplicateLabel.value && !duplicateMeta.value)
 
 function confirm() {
   if (!canImport.value) return
@@ -113,7 +127,7 @@ function cancel() {
                 <v-text-field
                   v-model="m.label"
                   :placeholder="m.key"
-                  :disabled="m.role === 'skip'"
+                  :disabled="META_ROLES.includes(m.role)"
                   density="compact"
                   hide-details
                   variant="outlined"
@@ -141,13 +155,26 @@ function cancel() {
         >
           Two included columns share the same label — give them distinct labels.
         </v-alert>
+        <v-alert
+          v-else-if="duplicateMeta"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mt-3"
+        >
+          Use at most one <strong>ID</strong> column and one <strong>Entries / count</strong> column.
+        </v-alert>
 
         <div class="mt-4">
           <p class="text-body-2 mb-1">Add to the existing pool, or replace it?</p>
           <v-btn-toggle v-model="mode" mandatory density="compact" color="primary">
             <v-btn value="replace">Replace pool</v-btn>
             <v-btn value="append">Append</v-btn>
+            <v-btn value="accumulate">Add entries</v-btn>
           </v-btn-toggle>
+          <p v-if="mode === 'accumulate'" class="text-body-2 text-medium-emphasis mt-1">
+            Match returning people and add an entry each — for daily check-in lists.
+          </p>
         </div>
       </v-card-text>
       <v-card-actions>

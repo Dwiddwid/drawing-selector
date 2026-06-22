@@ -59,6 +59,14 @@ describe('deserializeState', () => {
     })
   })
 
+  it('round-trips entries and externalId on participants', () => {
+    const weighted = { id: 'u1', externalId: true, fields: { Name: 'Ada' }, entries: 7 }
+    const { candidates } = deserializeState(
+      JSON.stringify({ candidates: [weighted], winners: [] }),
+    )
+    expect(candidates[0]).toEqual(weighted)
+  })
+
   it('migrates legacy { firstName, lastName, extras } records from old backups', () => {
     const legacy = { id: 'x', firstName: 'Ada', lastName: 'Lovelace', extras: { Grade: '3' } }
     const { candidates } = deserializeState(

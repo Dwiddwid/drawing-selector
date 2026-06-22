@@ -173,6 +173,47 @@ describe('settings store', () => {
     expect(localStorage.getItem('settings')).toBe(null)
   })
 
+  describe('participantList', () => {
+    it('defaults hideZeroEntries to false', () => {
+      const settings = useSettingsStore()
+      expect(settings.participantList).toEqual({ hideZeroEntries: false })
+    })
+
+    it('updateParticipantList patches and persists', () => {
+      const settings = useSettingsStore()
+      settings.updateParticipantList({ hideZeroEntries: true })
+      expect(settings.participantList.hideZeroEntries).toBe(true)
+      expect(JSON.parse(localStorage.getItem('settings')).participantList.hideZeroEntries).toBe(true)
+    })
+
+    it('mergeSettings deep-merges participantList from stored blob', () => {
+      const merged = mergeSettings({ participantList: { hideZeroEntries: true } })
+      expect(merged.participantList.hideZeroEntries).toBe(true)
+    })
+
+    it('mergeSettings fills participantList defaults for older blobs that lack it', () => {
+      const merged = mergeSettings({ isPro: true, animationStyle: 'classic' })
+      expect(merged.participantList).toEqual({ hideZeroEntries: false })
+    })
+
+    it('persists and reloads participantList round-trip', () => {
+      const settings = useSettingsStore()
+      settings.updateParticipantList({ hideZeroEntries: true })
+
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.participantList.hideZeroEntries).toBe(true)
+    })
+
+    it('resetSettings restores participantList defaults', () => {
+      const settings = useSettingsStore()
+      settings.updateParticipantList({ hideZeroEntries: true })
+      settings.resetSettings()
+      expect(settings.participantList).toEqual(defaultSettings().participantList)
+    })
+  })
+
   describe('animation & celebration', () => {
     it('defaults to the classic style with confetti and sound enabled', () => {
       const settings = useSettingsStore()
