@@ -251,11 +251,17 @@ export const useParticipantStore = defineStore('participantStore', {
       const total = pool.reduce((sum, c) => sum + entryWeight(c), 0)
       if (total <= 0) return null
       let r = Math.random() * total
+      let last = null
       for (const c of pool) {
-        r -= entryWeight(c)
+        const w = entryWeight(c)
+        if (w <= 0) continue
+        last = c
+        r -= w
         if (r < 0) return c
       }
-      return pool[pool.length - 1]
+      // Only reachable via floating-point rounding; `last` is the final
+      // positive-weight candidate, so we never fall back onto a 0-weight one.
+      return last
     },
     pointToRandomCandidate() {
       const pick = this.weightedPick(this.filteredCandidates)

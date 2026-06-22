@@ -185,11 +185,12 @@ export function normalizeWithMapping(rows, mapping) {
 // Stable key used to exclude prior winners (and in-pool duplicates) on import,
 // and to match returning people in accumulate mode. When the participant has an
 // imported id, that id *is* the identity (so re-imports dedupe and two people
-// with identical fields but different ids stay distinct). Otherwise the key is
-// built from every field, so two entries sharing a headline but differing in
-// another column are treated separately.
+// with identical fields but different ids stay distinct). The id is kept
+// case-sensitive — external ids like "U1" and "u1" are distinct identities.
+// Otherwise the key is built from every field, so two entries sharing a
+// headline but differing in another column are treated separately.
 export function participantKey(p) {
-  if (p.externalId) return `id=${p.id}`.toLowerCase()
+  if (p.externalId) return `id=${p.id}`
   const fields = p.fields || {}
   return Object.keys(fields)
     .sort()

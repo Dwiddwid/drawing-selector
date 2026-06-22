@@ -161,6 +161,14 @@ describe('participant store', () => {
       store.addCandidate()
       expect(store.candidates[0].fields).toEqual({})
     })
+
+    it('defaults entries to 1 but honors an explicit count', () => {
+      const store = useParticipantStore()
+      store.addCandidate({ Name: 'Ada' })
+      store.addCandidate({ Name: 'Grace' }, 5)
+      expect(store.candidates[0].entries).toBe(1)
+      expect(store.candidates[1].entries).toBe(5)
+    })
   })
 
   describe('removeCandidate', () => {

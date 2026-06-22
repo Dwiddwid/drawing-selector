@@ -227,6 +227,13 @@ describe('participantKey', () => {
     expect(participantKey(a)).toBe('id=u-1')
   })
 
+  it('treats imported ids as case-sensitive identities', () => {
+    const a = { id: 'U1', externalId: true, fields: { Name: 'John Smith' } }
+    const b = { id: 'u1', externalId: true, fields: { Name: 'John Smith' } }
+    expect(participantKey(a)).toBe('id=U1')
+    expect(participantKey(a)).not.toBe(participantKey(b))
+  })
+
   it('is stable for the same imported id regardless of fields', () => {
     const a = { id: 'u-1', externalId: true, fields: { Name: 'Ada', Bus: '1' } }
     const b = { id: 'u-1', externalId: true, fields: { Name: 'Ada', Bus: '2' } }

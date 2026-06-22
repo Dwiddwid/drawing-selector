@@ -24,6 +24,10 @@ function labelFor(key) {
 function colSpan(count) {
   return Math.max(2, Math.floor(10 / count))
 }
+// Narrower budget for the add row, which also hosts the entries + Add columns.
+function addColSpan(count) {
+  return Math.max(2, Math.floor(8 / count))
+}
 const displayName = (p) => formatWinnerName(p, settings.winnerDisplay) || '(no name)'
 const entriesOf = (p) => entryWeight(p)
 
@@ -59,11 +63,13 @@ watch(pageCount, (count) => {
 
 // Add/edit inputs keyed by name field. Reset when the set of name fields changes.
 const newFields = ref({})
+const newEntries = ref(1)
 const editingId = ref(null)
 const editFields = ref({})
 
 watch(nameKeys, () => {
   newFields.value = {}
+  newEntries.value = 1
 })
 
 const pendingKey = ref(null)
@@ -120,8 +126,10 @@ function addParticipant() {
     emit('notify', 'Enter at least one name field.', 'warning')
     return
   }
-  store.addCandidate(fields)
+  const entries = Math.max(0, Math.floor(Number(newEntries.value) || 0))
+  store.addCandidate(fields, entries)
   newFields.value = {}
+  newEntries.value = 1
 }
 
 function onPendingKeyChange(key) {
@@ -259,11 +267,22 @@ function addFilter() {
         class="mt-1"
       />
 
-      <v-row class="mt-2" dense>
-        <v-col v-for="key in nameKeys" :key="key" :cols="colSpan(nameKeys.length)">
+      <v-row class="mt-2" dense align="center">
+        <v-col v-for="key in nameKeys" :key="key" :cols="addColSpan(nameKeys.length)">
           <v-text-field
             v-model="newFields[key]"
             :label="labelFor(key)"
+            density="compact"
+            hide-details
+            @keyup.enter="addParticipant"
+          />
+        </v-col>
+        <v-col cols="2">
+          <v-text-field
+            v-model.number="newEntries"
+            label="Entries"
+            type="number"
+            min="0"
             density="compact"
             hide-details
             @keyup.enter="addParticipant"

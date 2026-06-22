@@ -84,15 +84,15 @@ function onMappingConfirm({ mapping, mode }) {
   } else {
     settings.setNameKeys([...new Set([...settings.winnerDisplay.nameKeys, ...nameKeys])])
   }
+  // Build a message that reads naturally whether the import only added new
+  // people, only topped up entries for returning ones (accumulate), or both.
   const verb = mode === 'replace' ? 'Imported' : 'Added'
-  const extras = []
-  if (merged) extras.push(`added entries to ${merged} returning`)
-  if (skipped) extras.push(`skipped ${skipped} duplicate${skipped === 1 ? '' : 's'}`)
-  notify(
-    `${verb} ${imported} participant${imported === 1 ? '' : 's'}` +
-      (extras.length ? ` (${extras.join(', ')})` : ''),
-    'success',
-  )
+  const parts = []
+  if (imported || !merged) parts.push(`${imported} participant${imported === 1 ? '' : 's'}`)
+  if (merged) parts.push(`entries to ${merged} returning participant${merged === 1 ? '' : 's'}`)
+  let message = `${verb} ${parts.join(' and ')}`
+  if (skipped) message += ` (skipped ${skipped} duplicate${skipped === 1 ? '' : 's'})`
+  notify(message, 'success')
   resetFileInput()
 }
 
