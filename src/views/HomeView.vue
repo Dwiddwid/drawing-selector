@@ -44,7 +44,15 @@ function selectWinner() {
                   </nav>
                 </v-col>
                 <v-col>
-                  <v-checkbox label="Use multi display mode" v-model="multiDisplay"></v-checkbox>
+                  <v-checkbox
+                    label="Use multi display mode"
+                    v-model="multiDisplay"
+                    hide-details
+                  ></v-checkbox>
+                  <p class="text-caption text-medium-emphasis mt-1 mb-2">
+                    Open the drawing on a second screen (e.g. a projector) and trigger each
+                    draw from this window with “Select winner”.
+                  </p>
                   <v-btn @click="saveMultiDisplay" v-if="multiDisplay != store.useMultiDisplayMode"
                     >Save</v-btn
                   >

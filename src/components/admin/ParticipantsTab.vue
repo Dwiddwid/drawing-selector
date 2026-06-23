@@ -132,6 +132,18 @@ function addParticipant() {
   newEntries.value = 1
 }
 
+// Delete with an undo affordance, matching how resets behave. Capture the row
+// and its position first so the toast's Undo can splice it back where it was.
+function removeParticipant(participant) {
+  const index = store.candidates.findIndex((c) => c.id === participant.id)
+  if (index === -1) return
+  const snapshot = { ...participant, fields: { ...(participant.fields ?? {}) } }
+  store.removeCandidate(participant.id)
+  emit('notify', `Removed ${displayName(participant)}.`, 'info', () =>
+    store.insertCandidate(snapshot, index),
+  )
+}
+
 function onPendingKeyChange(key) {
   pendingKey.value = key
   pendingValue.value = null
@@ -248,7 +260,7 @@ function addFilter() {
                 size="x-small"
                 variant="text"
                 color="error"
-                @click="store.removeCandidate(participant.id)"
+                @click="removeParticipant(participant)"
                 aria-label="Remove participant"
               >
                 <font-awesome-icon icon="fas fa-trash" />

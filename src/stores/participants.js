@@ -204,6 +204,14 @@ export const useParticipantStore = defineStore('participantStore', {
         this.persistCandidates()
       }
     },
+    // Re-insert a previously-removed candidate at its original position. Backs
+    // the "Undo" on a single delete; the index is clamped so a list that shrank
+    // in the meantime still lands the row somewhere valid.
+    insertCandidate(participant, index) {
+      const i = Math.min(Math.max(0, index), this.candidates.length)
+      this.candidates.splice(i, 0, participant)
+      this.persistCandidates()
+    },
     updateCandidate(id, { fields, entries } = {}) {
       const c = this.candidates.find((c) => c.id === id)
       if (!c) return

@@ -193,6 +193,30 @@ describe('participant store', () => {
     })
   })
 
+  describe('insertCandidate', () => {
+    it('restores a removed candidate at its original index and persists', () => {
+      const store = useParticipantStore()
+      const ada = person('Ada', 'Lovelace')
+      const alan = person('Alan', 'Turing')
+      const grace = person('Grace', 'Hopper')
+      store.candidates = [ada, alan, grace]
+
+      const index = store.candidates.findIndex((c) => c.id === alan.id)
+      store.removeCandidate(alan.id)
+      store.insertCandidate(alan, index)
+
+      expect(store.candidates.map(first)).toEqual(['Ada', 'Alan', 'Grace'])
+      expect(JSON.parse(localStorage.getItem('candidates'))[1].fields['First Name']).toBe('Alan')
+    })
+
+    it('clamps an out-of-range index to the end of the list', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.insertCandidate(person('Grace', 'Hopper'), 99)
+      expect(store.candidates.map(first)).toEqual(['Ada', 'Grace'])
+    })
+  })
+
   describe('importState', () => {
     it('replaces candidates and winners, resets draw state, and persists both', () => {
       const store = useParticipantStore()

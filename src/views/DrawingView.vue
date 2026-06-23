@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
 import { formatWinnerName, visibleWinnerFields } from '../utils/winnerDisplay.js'
@@ -31,6 +31,21 @@ const wheelActive = ref(false)
 const wheelSegments = ref([])
 const wheelWinnerSegmentIdx = ref(-1)
 const pendingWinnerIdx = ref(-1)
+
+// A draw can only run when the (filtered) pool has at least one entry. The store
+// refuses to spin when totalEntries is 0 — e.g. a Draw Filter that excludes
+// everyone, or all remaining candidates having 0 entries — so GO! and the
+// keyboard trigger gate on this, not on the raw candidate count.
+const canDraw = computed(() => store.totalEntries > 0)
+
+// When a draw can't run, say *why*: an empty pool needs a CSV import, whereas a
+// non-empty pool with no drawable entries is the result of a Draw Filter (or
+// every remaining candidate sitting at 0 entries).
+const emptyMessage = computed(() =>
+  store.candidates.length === 0
+    ? 'No participants loaded — import a CSV first.'
+    : 'No candidates match the current draw filter.',
+)
 
 function startDraw() {
   // Reload filters from localStorage so a separate projector window always
@@ -78,6 +93,20 @@ const unsubscribe = onChannelMessage((msg) => {
 })
 onBeforeUnmount(() => unsubscribe())
 
+// Keyboard / presentation-remote trigger: Space, Enter, and the keys most
+// clickers send (ArrowRight / PageDown) start a draw on the projector. Disabled
+// in multi-display mode (the admin window drives the draw there) and while a
+// draw is already running or the pool is un-drawable.
+const DRAW_KEYS = new Set([' ', 'Spacebar', 'Enter', 'ArrowRight', 'PageDown'])
+function onKeydown(e) {
+  if (!DRAW_KEYS.has(e.key)) return
+  if (store.useMultiDisplayMode || store.spinning || wheelActive.value || !canDraw.value) return
+  e.preventDefault()
+  startDraw()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
 // Branding (logo + event title) is hidden while a draw is running so it never
 // overlays the spinning wheel; it returns alongside the winner card.
 const introVisible = computed(() => !store.spinning && !wheelActive.value)
@@ -115,14 +144,30 @@ const detailRows = computed(() =>
   store.selected ? visibleWinnerFields(store.selected, settings.winnerDisplay) : [],
 )
 
+// Text equivalent of the (canvas-based, otherwise silent) reveal for assistive
+// tech, surfaced through a polite aria-live region.
+const drawStatus = computed(() => {
+  if (store.spinning || wheelActive.value) return 'Drawing…'
+  if (store.selected) return `Winner: ${winnerName.value}`
+  return ''
+})
+
 // Fire confetti + chime exactly once per reveal (when `selected` transitions
-// from null to a participant).
+// from null to a participant). Confetti is suppressed for viewers who've asked
+// for reduced motion; the chime still plays (an audio cue, not motion).
+function prefersReducedMotion() {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
 watch(
   () => store.selected,
   (next, prev) => {
     if (!next || prev) return
     celebrate({
-      confetti: settings.celebration.confetti,
+      confetti: settings.celebration.confetti && !prefersReducedMotion(),
       sound: settings.celebration.sound,
     })
   },
@@ -132,6 +177,7 @@ watch(
 <template>
   <v-main>
     <v-container fluid fill-height class="text-center d-flex flex-column align-center justify-center fill-height">
+      <div class="sr-only" aria-live="polite" role="status">{{ drawStatus }}</div>
       <img
         v-if="settings.theme.logo && !isFullViewport && introVisible"
         :src="settings.theme.logo"
@@ -205,7 +251,7 @@ watch(
 
           <v-btn
             v-if="!store.useMultiDisplayMode && !store.spinning"
-            :disabled="store.candidates.length === 0"
+            :disabled="!canDraw"
             variant="elevated"
             color="primary"
             class="giant-go go-btn"
@@ -215,10 +261,10 @@ watch(
           </v-btn>
 
           <div
-            v-if="store.candidates.length === 0 && !store.spinning && !store.selected"
+            v-if="!canDraw && !store.spinning && !store.selected"
             class="giant-empty"
           >
-            No participants loaded — import a CSV first.
+            {{ emptyMessage }}
           </div>
         </div>
       </template>
@@ -269,7 +315,7 @@ watch(
 
         <v-btn
           v-if="!store.useMultiDisplayMode && !store.spinning"
-          :disabled="store.candidates.length === 0"
+          :disabled="!canDraw"
           variant="elevated"
           color="primary"
           class="mt-6 go-btn"
@@ -279,10 +325,10 @@ watch(
         </v-btn>
 
         <div
-          v-if="store.candidates.length === 0 && !store.spinning && !store.selected"
+          v-if="!canDraw && !store.spinning && !store.selected"
           class="text-medium-emphasis mt-2"
         >
-          No participants loaded — import a CSV first.
+          {{ emptyMessage }}
         </div>
       </template>
 
@@ -322,17 +368,17 @@ watch(
         <v-card-actions v-if="!store.useMultiDisplayMode">
           <v-btn
             v-show="!store.spinning"
-            :disabled="store.candidates.length === 0"
+            :disabled="!canDraw"
             variant="elevated"
             color="primary"
             v-on:click="startDraw"
             >GO!</v-btn
           >
           <div
-            v-if="store.candidates.length === 0 && !store.spinning"
+            v-if="!canDraw && !store.spinning"
             class="text-medium-emphasis mt-2"
           >
-            No participants loaded — import a CSV first.
+            {{ emptyMessage }}
           </div>
         </v-card-actions>
       </v-card>
@@ -342,6 +388,18 @@ watch(
 </template>
 
 <style scoped>
+/* Visually hidden but available to screen readers (the aria-live status). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 button {
   width: 100%;
 }
