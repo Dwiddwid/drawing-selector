@@ -5,6 +5,7 @@ import { useSettingsStore } from '../../stores/settings.js'
 import { filterParticipants } from '../../utils/search.js'
 import { formatWinnerName, collectFieldKeys } from '../../utils/winnerDisplay.js'
 import { entryWeight } from '../../utils/csv.js'
+import { postManualTrigger } from '../../utils/sync.js'
 
 const emit = defineEmits(['notify'])
 
@@ -155,6 +156,16 @@ function addFilter() {
   pendingKey.value = null
   pendingValue.value = null
 }
+
+function manualWin(participant, show) {
+  if (show) {
+    postManualTrigger(participant.id)
+    emit('notify', `${displayName(participant)} sent to drawing screen.`, 'success')
+  } else {
+    store.manuallySelectWinner(participant.id)
+    emit('notify', `${displayName(participant)} added to winners.`, 'success')
+  }
+}
 </script>
 
 <template>
@@ -265,6 +276,32 @@ function addFilter() {
               >
                 <font-awesome-icon icon="fas fa-trash" />
               </v-btn>
+              <v-menu>
+                <template #activator="{ props: menuProps }">
+                  <v-btn
+                    icon
+                    size="x-small"
+                    variant="text"
+                    color="warning"
+                    v-bind="menuProps"
+                    aria-label="Select as winner"
+                  >
+                    <font-awesome-icon icon="fas fa-crown" />
+                  </v-btn>
+                </template>
+                <v-list density="compact">
+                  <v-list-item
+                    prepend-icon="fas fa-list-check"
+                    title="Add to winners (silent)"
+                    @click="manualWin(participant, false)"
+                  />
+                  <v-list-item
+                    prepend-icon="fas fa-tv"
+                    title="Show on screen"
+                    @click="manualWin(participant, true)"
+                  />
+                </v-list>
+              </v-menu>
             </template>
           </template>
         </v-list-item>

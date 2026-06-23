@@ -56,6 +56,8 @@ export function defaultSettings() {
     // Participant list display options.
     participantList: {
       hideZeroEntries: false, // when true, 0-entry participants are hidden from the admin list
+      entriesMode: 'odds',          // 'odds' | 'multi-win'
+      maxWinsPerParticipant: null,  // null = no cap, positive integer = cap
     },
     // Wheel-spinner appearance. Size/position/offsets apply to the standard
     // wheel only — the giant wheel is full-viewport by design.
@@ -155,7 +157,17 @@ export function mergeSettings(stored) {
       : base.animationStyle,
     celebration: { ...base.celebration, ...(stored.celebration || {}) },
     spinner,
-    participantList: { ...base.participantList, ...(stored.participantList || {}) },
+    participantList: (() => {
+      const pl = { ...base.participantList, ...(stored.participantList || {}) }
+      if (!['odds', 'multi-win'].includes(pl.entriesMode)) {
+        pl.entriesMode = base.participantList.entriesMode
+      }
+      if (pl.maxWinsPerParticipant !== null) {
+        const cap = Math.floor(Number(pl.maxWinsPerParticipant))
+        pl.maxWinsPerParticipant = cap > 0 ? cap : null
+      }
+      return pl
+    })(),
   }
 }
 

@@ -176,7 +176,7 @@ describe('settings store', () => {
   describe('participantList', () => {
     it('defaults hideZeroEntries to false', () => {
       const settings = useSettingsStore()
-      expect(settings.participantList).toEqual({ hideZeroEntries: false })
+      expect(settings.participantList).toMatchObject({ hideZeroEntries: false, entriesMode: 'odds', maxWinsPerParticipant: null })
     })
 
     it('updateParticipantList patches and persists', () => {
@@ -193,7 +193,7 @@ describe('settings store', () => {
 
     it('mergeSettings fills participantList defaults for older blobs that lack it', () => {
       const merged = mergeSettings({ isPro: true, animationStyle: 'classic' })
-      expect(merged.participantList).toEqual({ hideZeroEntries: false })
+      expect(merged.participantList).toMatchObject({ hideZeroEntries: false, entriesMode: 'odds', maxWinsPerParticipant: null })
     })
 
     it('persists and reloads participantList round-trip', () => {

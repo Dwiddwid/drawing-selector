@@ -47,14 +47,16 @@ const emptyMessage = computed(() =>
     : 'No candidates match the current draw filter.',
 )
 
-function startDraw() {
+function startDraw(targetId = null) {
   // Reload filters from localStorage so a separate projector window always
   // honors the admin's current Draw Filter selection. In single-window mode
   // the store is already up-to-date, so this is a cheap no-op in that case.
   store.loadFilters()
   if (isWheel.value || isPriceWheel.value) {
     if (!store.beginVisualSpin()) return
-    const idx = store.pickWinnerIndex()
+    const idx = targetId
+      ? store.candidates.findIndex((c) => c.id === targetId)
+      : store.pickWinnerIndex()
     if (idx < 0) {
       // Pool emptied between the check and the pick — bail cleanly.
       store.commitAt(-1)
@@ -72,7 +74,8 @@ function startDraw() {
     wheelWinnerSegmentIdx.value = winnerSegmentIdx
     wheelActive.value = true
   } else {
-    store.selectRandomCandidate(settings.animationStyle)
+    if (targetId) store.selectSpecificCandidate(targetId, settings.animationStyle)
+    else store.selectRandomCandidate(settings.animationStyle)
   }
 }
 
@@ -90,6 +93,7 @@ function onWheelDone() {
 // back to this screen's own GO! button.
 const unsubscribe = onChannelMessage((msg) => {
   if (msg.type === 'trigger') startDraw()
+  if (msg.type === 'manual-trigger') startDraw(msg.targetId)
 })
 onBeforeUnmount(() => unsubscribe())
 
