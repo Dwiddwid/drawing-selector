@@ -100,6 +100,10 @@ onBeforeUnmount(() => unsubscribe())
 const DRAW_KEYS = new Set([' ', 'Spacebar', 'Enter', 'ArrowRight', 'PageDown'])
 function onKeydown(e) {
   if (!DRAW_KEYS.has(e.key)) return
+  // Let a focused control handle its own activation (e.g. Space/Enter on the
+  // GO! button) so we don't double-trigger the draw.
+  const tag = e.target?.tagName
+  if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
   if (store.useMultiDisplayMode || store.spinning || wheelActive.value || !canDraw.value) return
   e.preventDefault()
   startDraw()
@@ -177,7 +181,7 @@ watch(
 <template>
   <v-main>
     <v-container fluid fill-height class="text-center d-flex flex-column align-center justify-center fill-height">
-      <div class="sr-only" aria-live="polite" role="status">{{ drawStatus }}</div>
+      <div class="sr-only" role="status">{{ drawStatus }}</div>
       <img
         v-if="settings.theme.logo && !isFullViewport && introVisible"
         :src="settings.theme.logo"
