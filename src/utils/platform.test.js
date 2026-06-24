@@ -112,5 +112,66 @@ describe('platform helpers', () => {
       expect(first).not.toBe(second)
       ch.close()
     })
+
+    it('polls localStorage and delivers a trigger when no storage event fires', () => {
+      // Safari can drop the `storage` event to a reloaded file:// window; the
+      // poll is the safety net. Simulate the admin window's write landing in the
+      // shared store *without* a corresponding storage event.
+      setProtocol('file:')
+      vi.useFakeTimers()
+      const ch = createTriggerChannel()
+      const received = []
+      ch.onMessage((data) => received.push(data))
+
+      localStorage.setItem(
+        'drawing_trigger',
+        JSON.stringify({ data: 'Go!', nonce: 99 }),
+      )
+      expect(received).toEqual([]) // no event dispatched yet
+      vi.advanceTimersByTime(300)
+      expect(received).toEqual(['Go!'])
+
+      // A second poll over the same value does not re-deliver (nonce de-dup).
+      vi.advanceTimersByTime(300)
+      expect(received).toEqual(['Go!'])
+
+      ch.close()
+      vi.useRealTimers()
+    })
+
+    it('does not echo a tab\'s own postMessage back to its own listener', () => {
+      setProtocol('file:')
+      vi.useFakeTimers()
+      const ch = createTriggerChannel()
+      const received = []
+      ch.onMessage((data) => received.push(data))
+
+      ch.postMessage('Go!')
+      vi.advanceTimersByTime(300)
+      expect(received).toEqual([]) // poll sees our own write as already-seen
+
+      ch.close()
+      vi.useRealTimers()
+    })
+
+    it('ignores a trigger already in localStorage at creation (baseline)', () => {
+      // A reload leaves the previous draw's value in localStorage; it must not
+      // replay on load.
+      setProtocol('file:')
+      vi.useFakeTimers()
+      localStorage.setItem(
+        'drawing_trigger',
+        JSON.stringify({ data: 'Go!', nonce: 7 }),
+      )
+      const ch = createTriggerChannel()
+      const received = []
+      ch.onMessage((data) => received.push(data))
+
+      vi.advanceTimersByTime(300)
+      expect(received).toEqual([])
+
+      ch.close()
+      vi.useRealTimers()
+    })
   })
 })
