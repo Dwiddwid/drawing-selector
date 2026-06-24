@@ -263,7 +263,7 @@ watch(
             variant="elevated"
             color="primary"
             class="giant-go go-btn"
-            @click="startDraw"
+            @click="startDraw()"
           >
             GO!
           </v-btn>
@@ -327,7 +327,7 @@ watch(
           variant="elevated"
           color="primary"
           class="mt-6 go-btn"
-          @click="startDraw"
+          @click="startDraw()"
         >
           GO!
         </v-btn>
@@ -379,7 +379,7 @@ watch(
             :disabled="!canDraw"
             variant="elevated"
             color="primary"
-            v-on:click="startDraw"
+            @click="startDraw()"
             >GO!</v-btn
           >
           <div

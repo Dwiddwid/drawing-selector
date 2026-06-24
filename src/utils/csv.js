@@ -16,7 +16,12 @@ export function uid() {
 // Handles quoted fields containing commas/newlines, escaped "" quotes, and
 // \r\n / \r / \n line endings. Trims headers and values; skips blank lines.
 export function parseCsv(text) {
-  const source = String(text ?? '')
+  // Strip a leading UTF-8 BOM (U+FEFF). Spreadsheet exports (e.g. Excel "CSV
+  // UTF-8") prepend one; left in place it becomes part of the first header
+  // ("Person" with a hidden BOM), breaking alias auto-detection and field-key
+  // matching.
+  const raw = String(text ?? '')
+  const source = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw
   const rows = []
   let row = []
   let field = ''
@@ -95,7 +100,7 @@ function findHeader(headers, aliases) {
 // restaurants/games auto-map their one identifying column.
 const FIRST_ALIASES = ['firstname', 'first', 'fname', 'givenname']
 const LAST_ALIASES = ['lastname', 'last', 'lname', 'surname', 'familyname']
-const SINGLE_NAME_ALIASES = ['name', 'fullname', 'title', 'restaurant', 'item', 'game', 'team']
+const SINGLE_NAME_ALIASES = ['name', 'fullname', 'person', 'title', 'restaurant', 'item', 'game', 'team']
 // Columns that identify a participant (used as their stable identity) and
 // columns that carry a per-participant entry count / weight.
 const ID_ALIASES = ['id', 'userid', 'participantid', 'memberid', 'attendeeid', 'uuid']
