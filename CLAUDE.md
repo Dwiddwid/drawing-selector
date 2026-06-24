@@ -88,7 +88,10 @@ source maps are off. The output runs from `file://` (USB stick, no server).
   (`{ postMessage, onMessage, close }`) for multi-display. On the web it wraps
   `BroadcastChannel`; under `file://` (where opaque origins make
   `BroadcastChannel` useless) it falls back to a `localStorage` + `storage`-event
-  transport, which *does* propagate between `file://` tabs of the same file.
+  transport, which *does* propagate between `file://` tabs of the same file. That
+  fallback *also* polls the stored value (`POLL_INTERVAL_MS`) because Safari can
+  stop dispatching `storage` events to a reloaded `file://` window; a per-message
+  nonce de-dups the event vs. the poll and prevents a tab echoing its own post.
   **Always use this instead of `new BroadcastChannel(...)` directly.**
 
 `src/router/index.js` uses `createWebHashHistory()` when `isPortable()` (so

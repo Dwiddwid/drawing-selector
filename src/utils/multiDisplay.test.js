@@ -101,9 +101,11 @@ describe('multi-display trigger end-to-end (localStorage fallback)', () => {
     )
 
     expect(store.spinning).toBe(true)
+    // Close before flushing: the receiver now holds a live poll interval, which
+    // would trip runAllTimers' infinite-loop guard.
+    receiver.close()
     vi.runAllTimers()
     expect(store.winners).toHaveLength(1)
-    receiver.close()
   })
 
   it('passes the configured animation style through to the store', () => {
@@ -122,8 +124,8 @@ describe('multi-display trigger end-to-end (localStorage fallback)', () => {
     )
 
     expect(spy).toHaveBeenCalledWith('wheel')
+    receiver.close()
     vi.runAllTimers()
     expect(store.winners).toHaveLength(1)
-    receiver.close()
   })
 })
