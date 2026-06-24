@@ -160,7 +160,19 @@ function addFilter() {
 function manualWin(participant, show) {
   if (show) {
     postManualTrigger(participant.id)
-    emit('notify', `${displayName(participant)} sent to drawing screen.`, 'success')
+    // The trigger is fire-and-forget over the broadcast channel; we can't
+    // confirm a drawing screen received it. Multi-display mode is the operator's
+    // signal that a separate projector window is in use, so only claim delivery
+    // then — otherwise nudge them to open one.
+    if (store.useMultiDisplayMode) {
+      emit('notify', `${displayName(participant)} sent to the drawing screen.`, 'success')
+    } else {
+      emit(
+        'notify',
+        `Open the drawing screen (enable multi-display mode) to show ${displayName(participant)}.`,
+        'warning',
+      )
+    }
   } else {
     store.manuallySelectWinner(participant.id)
     emit('notify', `${displayName(participant)} added to winners.`, 'success')

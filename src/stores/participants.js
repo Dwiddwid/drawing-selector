@@ -339,51 +339,11 @@ export const useParticipantStore = defineStore('participantStore', {
       this.commitSelection()
       return true
     },
-    // Run the slot-machine animation but land on a specific participant.
-    // Visual cycling is still random; the forced participant is committed at the end.
-    selectSpecificCandidate(id, style = 'classic') {
-      if (this.spinning) return false
-      if (this.candidates.findIndex((c) => c.id === id) < 0) return false
-
-      const timing = ANIMATION_TIMING[style] ?? ANIMATION_TIMING.classic
-      this.spinning = true
-      this.selected = null
-      this.clearResetUndo()
-
-      const timeBeforeSlow = Math.floor(Math.random() * timing.minRandom)
-      let i = 0
-      let delay = timing.baseDelay
-
-      const tick = () => {
-        this.pointToRandomCandidate()
-        i += 1
-        if (i > timeBeforeSlow) {
-          delay += timing.step
-        }
-        if (delay < timing.maxDelay) {
-          setTimeout(tick, delay)
-        } else {
-          this.spinning = false
-          this.index = this.candidates.findIndex((c) => c.id === id)
-          this.commitSelection()
-        }
-      }
-
-      setTimeout(tick, delay)
-      return true
-    },
-    // Add a participant directly to winners without any animation (admin-only path).
-    manuallySelectWinner(id) {
-      const idx = this.candidates.findIndex((c) => c.id === id)
-      if (idx === -1) return false
-      this.index = idx
-      this.commitSelection()
-      return true
-    },
-    selectRandomCandidate(style = 'classic') {
-      if (this.spinning) return false
-      if (this.totalEntries === 0) return false
-
+    // Shared slot-machine animation loop. Cycles the pointer with an
+    // accelerating delay; once it stops, `resolveWinner()` fixes the final
+    // `this.index` (a no-op for a random draw — the last tick already set it)
+    // and the pointed-at candidate is committed.
+    runSpinAnimation(style, resolveWinner) {
       const timing = ANIMATION_TIMING[style] ?? ANIMATION_TIMING.classic
       this.spinning = true
       this.selected = null
@@ -404,11 +364,38 @@ export const useParticipantStore = defineStore('participantStore', {
           setTimeout(tick, delay)
         } else {
           this.spinning = false
+          resolveWinner()
           this.commitSelection()
         }
       }
 
       setTimeout(tick, delay)
+    },
+    // Run the slot-machine animation but land on a specific participant.
+    // Visual cycling is still random; the forced participant is committed at the
+    // end. A manual pick is an explicit operator override, so it intentionally
+    // ignores the active draw filter (unlike the random draw, which is gated on
+    // the filtered pool via totalEntries).
+    selectSpecificCandidate(id, style = 'classic') {
+      if (this.spinning) return false
+      if (this.candidates.findIndex((c) => c.id === id) < 0) return false
+      this.runSpinAnimation(style, () => {
+        this.index = this.candidates.findIndex((c) => c.id === id)
+      })
+      return true
+    },
+    // Add a participant directly to winners without any animation (admin-only path).
+    manuallySelectWinner(id) {
+      const idx = this.candidates.findIndex((c) => c.id === id)
+      if (idx === -1) return false
+      this.index = idx
+      this.commitSelection()
+      return true
+    },
+    selectRandomCandidate(style = 'classic') {
+      if (this.spinning) return false
+      if (this.totalEntries === 0) return false
+      this.runSpinAnimation(style, () => {})
       return true
     },
   },

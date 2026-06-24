@@ -895,8 +895,7 @@ describe('participant store', () => {
   describe('commitSelection — multi-win mode and win cap', () => {
     it("'odds' mode (default) removes participant entirely on win", () => {
       const store = useParticipantStore()
-      store.candidates = [person('Ada', 'Lovelace', { entries: 3 })]
-      store.candidates[0].entries = 3
+      store.candidates = [{ ...person('Ada', 'Lovelace'), entries: 3 }]
       store.index = 0
       store.commitSelection()
       expect(store.candidates).toHaveLength(0)
