@@ -19,6 +19,14 @@ describe('parseCsv', () => {
     ])
   })
 
+  it('strips a leading UTF-8 BOM from the first header', () => {
+    const { headers, rows } = parseCsv('﻿Person,Count\nAda Lovelace,1')
+    expect(headers).toEqual(['Person', 'Count'])
+    expect(rows[0].Person).toBe('Ada Lovelace')
+    // The BOM must not survive on the key, or auto-detect / field matching breaks.
+    expect(suggestMapping(headers)[0]).toMatchObject({ key: 'Person', role: 'name' })
+  })
+
   it('handles quoted fields containing commas', () => {
     const { rows } = parseCsv('First Name,Last Name\nJohn,"Smith, Jr."')
     expect(rows[0]['Last Name']).toBe('Smith, Jr.')
@@ -76,6 +84,12 @@ describe('suggestMapping', () => {
     expect(m[1]).toMatchObject({ key: 'Name', role: 'name' })
     expect(m[2]).toMatchObject({ key: 'Days Attended', role: 'entries' })
   })
+
+  it('auto-detects a Person column as a name field', () => {
+    const m = suggestMapping(['Person', 'Grade'])
+    expect(m[0]).toMatchObject({ key: 'Person', role: 'name' })
+    expect(m[1]).toMatchObject({ key: 'Grade', role: 'detail' })
+  })
 })
 
 describe('normalizeWithMapping', () => {
@@ -107,6 +121,18 @@ describe('normalizeWithMapping', () => {
       ]),
     )
     expect(list[0].fields).toEqual({ Restaurant: 'Joe Diner', Cuisine: 'American' })
+  })
+
+  it('keeps a Person full-name column as a single field (no split)', () => {
+    const { rows } = parseCsv('Person,Grade\nAda Lovelace,3')
+    const list = normalizeWithMapping(
+      rows,
+      mapping([
+        { key: 'Person', role: 'name' },
+        { key: 'Grade', role: 'detail' },
+      ]),
+    )
+    expect(list[0].fields).toEqual({ Person: 'Ada Lovelace', Grade: '3' })
   })
 
   it('drops skipped/excluded columns', () => {
