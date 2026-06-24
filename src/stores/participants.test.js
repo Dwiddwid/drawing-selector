@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useParticipantStore, ANIMATION_TIMING } from './participants.js'
+import { useSettingsStore } from './settings.js'
 
 function person(firstName, lastName, extras = {}) {
   const fields = {}
@@ -806,6 +807,152 @@ describe('participant store', () => {
       expect(result.merged).toBe(1) // Ada
       const ada = store.candidates.find((c) => c.fields.Name === 'Ada')
       expect(ada.entries).toBe(2)
+    })
+  })
+
+  describe('manuallySelectWinner', () => {
+    it('moves participant to winners and removes from candidates', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      const result = store.manuallySelectWinner('Ada-Lovelace')
+      expect(result).toBe(true)
+      expect(store.winners).toHaveLength(1)
+      expect(store.winners[0].fields['First Name']).toBe('Ada')
+      expect(store.candidates).toHaveLength(1)
+      expect(store.candidates[0].fields['First Name']).toBe('Alan')
+    })
+
+    it('sets store.selected to the winner', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.manuallySelectWinner('Ada-Lovelace')
+      expect(store.selected).not.toBeNull()
+      expect(store.selected.fields['First Name']).toBe('Ada')
+    })
+
+    it('returns false for an unknown id', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      expect(store.manuallySelectWinner('nobody')).toBe(false)
+      expect(store.winners).toHaveLength(0)
+    })
+
+    it('does not affect spinning state', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      store.manuallySelectWinner('Ada-Lovelace')
+      expect(store.spinning).toBe(false)
+    })
+  })
+
+  describe('selectSpecificCandidate', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    it('commits the forced participant after the animation', () => {
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace'),
+        person('Alan', 'Turing'),
+        person('Grace', 'Hopper'),
+      ]
+      expect(store.selectSpecificCandidate('Grace-Hopper')).toBe(true)
+      expect(store.spinning).toBe(true)
+      vi.runAllTimers()
+      expect(store.spinning).toBe(false)
+      expect(store.winners).toHaveLength(1)
+      expect(store.winners[0].fields['First Name']).toBe('Grace')
+      expect(store.candidates).toHaveLength(2)
+    })
+
+    it('returns false for an unknown id', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      expect(store.selectSpecificCandidate('nobody')).toBe(false)
+      expect(store.spinning).toBe(false)
+    })
+
+    it('returns false while already spinning', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      store.selectSpecificCandidate('Ada-Lovelace')
+      expect(store.selectSpecificCandidate('Alan-Turing')).toBe(false)
+      vi.runAllTimers()
+    })
+
+    it('handles participant disappearing mid-animation gracefully', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      store.selectSpecificCandidate('Alan-Turing')
+      // Remove the target before the animation ends
+      store.candidates = [person('Ada', 'Lovelace')]
+      vi.runAllTimers()
+      // commitSelection bails when index is -1; no crash, no winner added
+      expect(store.winners).toHaveLength(0)
+    })
+  })
+
+  describe('commitSelection — multi-win mode and win cap', () => {
+    it("'odds' mode (default) removes participant entirely on win", () => {
+      const store = useParticipantStore()
+      store.candidates = [{ ...person('Ada', 'Lovelace'), entries: 3 }]
+      store.index = 0
+      store.commitSelection()
+      expect(store.candidates).toHaveLength(0)
+      expect(store.winners).toHaveLength(1)
+    })
+
+    it("'multi-win' mode decrements entries and keeps participant in pool", () => {
+      const store = useParticipantStore()
+      const settings = useSettingsStore()
+      settings.participantList.entriesMode = 'multi-win'
+      store.candidates = [{ ...person('Ada', 'Lovelace'), entries: 3 }]
+      store.index = 0
+      store.commitSelection()
+      expect(store.candidates).toHaveLength(1)
+      expect(store.candidates[0].entries).toBe(2)
+      expect(store.winners).toHaveLength(1)
+    })
+
+    it("'multi-win' mode removes participant when last entry is consumed", () => {
+      const store = useParticipantStore()
+      const settings = useSettingsStore()
+      settings.participantList.entriesMode = 'multi-win'
+      store.candidates = [{ ...person('Ada', 'Lovelace'), entries: 1 }]
+      store.index = 0
+      store.commitSelection()
+      expect(store.candidates).toHaveLength(0)
+    })
+
+    it('win cap removes participant once cap is reached in multi-win mode', () => {
+      const store = useParticipantStore()
+      const settings = useSettingsStore()
+      settings.participantList.entriesMode = 'multi-win'
+      settings.participantList.maxWinsPerParticipant = 2
+      store.candidates = [{ ...person('Ada', 'Lovelace'), entries: 5 }]
+
+      // First win: stays in pool (1 win so far, cap = 2)
+      store.index = 0
+      store.commitSelection()
+      expect(store.candidates).toHaveLength(1)
+      expect(store.candidates[0].entries).toBe(4)
+
+      // Second win: removed (2 wins = cap reached)
+      store.index = 0
+      store.commitSelection()
+      expect(store.candidates).toHaveLength(0)
+      expect(store.winners).toHaveLength(2)
+    })
+
+    it('win cap in odds mode has no effect (already removed on win)', () => {
+      const store = useParticipantStore()
+      const settings = useSettingsStore()
+      settings.participantList.maxWinsPerParticipant = 3
+      store.candidates = [{ ...person('Ada', 'Lovelace'), entries: 5 }]
+      store.index = 0
+      store.commitSelection()
+      // 'odds' mode: removed immediately regardless of cap
+      expect(store.candidates).toHaveLength(0)
     })
   })
 })

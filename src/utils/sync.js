@@ -34,6 +34,10 @@ export function postTrigger() {
   getChannel()?.postMessage({ v: 1, type: 'trigger' })
 }
 
+export function postManualTrigger(targetId) {
+  getChannel()?.postMessage({ v: 1, type: 'manual-trigger', targetId })
+}
+
 export function broadcastSync(scope) {
   getChannel()?.postMessage({ v: 1, type: 'sync', scope })
 }

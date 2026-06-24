@@ -401,6 +401,41 @@ function resetAll() {
               class="mb-2"
             />
 
+            <v-divider class="my-3" />
+            <div class="text-subtitle-2 mb-1">Multiple entries behavior</div>
+            <v-radio-group
+              :model-value="settings.participantList.entriesMode"
+              @update:model-value="settings.updateParticipantList({ entriesMode: $event })"
+              hide-details
+              class="mb-2"
+            >
+              <v-radio value="odds" label="Increase draw odds — participant removed from pool when they win" />
+              <v-radio value="multi-win" label="Consume one entry per win — participant stays until all entries used" />
+            </v-radio-group>
+
+            <v-divider class="my-3" />
+            <div class="text-subtitle-2 mb-1">Win limit</div>
+            <v-switch
+              :model-value="settings.participantList.maxWinsPerParticipant !== null"
+              @update:model-value="settings.updateParticipantList({ maxWinsPerParticipant: $event ? 1 : null })"
+              color="primary"
+              hide-details
+              label="Cap maximum wins per participant"
+              class="mb-2"
+            />
+            <v-text-field
+              v-if="settings.participantList.maxWinsPerParticipant !== null"
+              :model-value="settings.participantList.maxWinsPerParticipant"
+              @update:model-value="settings.updateParticipantList({ maxWinsPerParticipant: Math.max(1, Math.floor(Number($event))) })"
+              type="number"
+              min="1"
+              label="Maximum wins per participant"
+              density="compact"
+              hide-details
+              style="max-width: 220px"
+              class="mb-2"
+            />
+
             <p v-if="settings.winnerDisplay.fields.length === 0" class="text-body-2 text-medium-emphasis">
               Import participants to choose which fields appear on the drawing screen and edit
               their labels.

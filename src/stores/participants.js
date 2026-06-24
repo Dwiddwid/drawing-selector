@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { participantKey, uid, migrateParticipants, entryWeight } from '../utils/csv.js'
 import { broadcastSync } from '../utils/sync.js'
+import { useSettingsStore } from './settings.js'
 
 function readJSON(key, fallback) {
   const raw = localStorage.getItem(key)
@@ -276,14 +277,30 @@ export const useParticipantStore = defineStore('participantStore', {
       if (!pick) { this.index = -1; return }
       this.index = this.candidates.findIndex((c) => c.id === pick.id)
     },
-    // Move the currently pointed-at candidate into winners (as a copy) and
-    // remove them from the pool so they can never be drawn again.
+    // Move the currently pointed-at candidate into winners (as a copy).
+    // In 'odds' mode (default) the participant is removed from the pool.
+    // In 'multi-win' mode, one entry is consumed; they stay until entries hit 1.
+    // A maxWinsPerParticipant cap overrides multi-win: once reached, they're removed.
     commitSelection() {
       if (this.index < 0 || this.index >= this.candidates.length) return
       const src = this.candidates[this.index]
       const winner = { ...src, fields: { ...(src.fields ?? {}) } }
       this.winners.push(winner)
-      this.candidates.splice(this.index, 1)
+
+      const { entriesMode, maxWinsPerParticipant } = useSettingsStore().participantList
+      const weight = entryWeight(src)
+      const srcKey = participantKey(src)
+      const winCount = maxWinsPerParticipant !== null
+        ? this.winners.filter((w) => participantKey(w) === srcKey).length
+        : 0
+      const capReached = maxWinsPerParticipant !== null && winCount >= maxWinsPerParticipant
+
+      if (entriesMode === 'multi-win' && weight > 1 && !capReached) {
+        src.entries = weight - 1
+      } else {
+        this.candidates.splice(this.index, 1)
+      }
+
       this.selected = winner
       this.index = -1
       this.persistWinners()
@@ -322,10 +339,11 @@ export const useParticipantStore = defineStore('participantStore', {
       this.commitSelection()
       return true
     },
-    selectRandomCandidate(style = 'classic') {
-      if (this.spinning) return false
-      if (this.totalEntries === 0) return false
-
+    // Shared slot-machine animation loop. Cycles the pointer with an
+    // accelerating delay; once it stops, `resolveWinner()` fixes the final
+    // `this.index` (a no-op for a random draw — the last tick already set it)
+    // and the pointed-at candidate is committed.
+    runSpinAnimation(style, resolveWinner) {
       const timing = ANIMATION_TIMING[style] ?? ANIMATION_TIMING.classic
       this.spinning = true
       this.selected = null
@@ -346,11 +364,38 @@ export const useParticipantStore = defineStore('participantStore', {
           setTimeout(tick, delay)
         } else {
           this.spinning = false
+          resolveWinner()
           this.commitSelection()
         }
       }
 
       setTimeout(tick, delay)
+    },
+    // Run the slot-machine animation but land on a specific participant.
+    // Visual cycling is still random; the forced participant is committed at the
+    // end. A manual pick is an explicit operator override, so it intentionally
+    // ignores the active draw filter (unlike the random draw, which is gated on
+    // the filtered pool via totalEntries).
+    selectSpecificCandidate(id, style = 'classic') {
+      if (this.spinning) return false
+      if (this.candidates.findIndex((c) => c.id === id) < 0) return false
+      this.runSpinAnimation(style, () => {
+        this.index = this.candidates.findIndex((c) => c.id === id)
+      })
+      return true
+    },
+    // Add a participant directly to winners without any animation (admin-only path).
+    manuallySelectWinner(id) {
+      const idx = this.candidates.findIndex((c) => c.id === id)
+      if (idx === -1) return false
+      this.index = idx
+      this.commitSelection()
+      return true
+    },
+    selectRandomCandidate(style = 'classic') {
+      if (this.spinning) return false
+      if (this.totalEntries === 0) return false
+      this.runSpinAnimation(style, () => {})
       return true
     },
   },
