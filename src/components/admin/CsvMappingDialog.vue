@@ -149,6 +149,14 @@ function cancel() {
           </tbody>
         </v-table>
 
+        <p class="text-caption text-medium-emphasis mt-2 mb-0">
+          <strong>Name / Title</strong> shows as the winner headline ·
+          <strong>Detail</strong> = extra info on the winner card ·
+          <strong>ID</strong> de-duplicates rows across imports ·
+          <strong>Entries</strong> = how many tickets each row gets ·
+          <strong>Skip</strong> ignores the column.
+        </p>
+
         <v-alert
           v-if="!hasName"
           type="warning"
