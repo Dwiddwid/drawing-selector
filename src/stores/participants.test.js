@@ -872,6 +872,23 @@ describe('participant store', () => {
       expect(store.spinning).toBe(false)
     })
 
+    // Regression: the GO button bound `@click="startDraw"`, which passed the
+    // click event as startDraw's `targetId`, reaching selectSpecificCandidate
+    // with a PointerEvent instead of an id — no candidate matched, so the draw
+    // silently never ran. The store must reject a non-id target (it does), and
+    // the no-arg random path (what `@click="startDraw()"` now uses) must run.
+    it('does not draw when handed a non-id target (e.g. a click event)', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      const eventLikeTarget = { type: 'click', isTrusted: true } // a PointerEvent never === an id
+      expect(store.selectSpecificCandidate(eventLikeTarget)).toBe(false)
+      expect(store.spinning).toBe(false)
+      // The correct no-arg path starts a real (random) draw.
+      expect(store.selectRandomCandidate()).toBe(true)
+      expect(store.spinning).toBe(true)
+      vi.runAllTimers()
+    })
+
     it('returns false while already spinning', () => {
       const store = useParticipantStore()
       store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]

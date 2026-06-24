@@ -379,7 +379,7 @@ watch(
             :disabled="!canDraw"
             variant="elevated"
             color="primary"
-            v-on:click="startDraw()"
+            @click="startDraw()"
             >GO!</v-btn
           >
           <div
