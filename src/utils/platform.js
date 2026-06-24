@@ -54,8 +54,10 @@ export function createTriggerChannel() {
   let listener = null
   let pollId = null
 
-  // Parse a stored value into { data, nonce }. A bare string (e.g. the legacy
-  // 'Go!' from a pre-update tab) is treated as both its own data and nonce.
+  // Parse a stored value into { data, nonce }. Every value we write is a
+  // JSON-encoded { data, nonce }; the bare-string branch is purely defensive
+  // (no shipped build has ever written a non-JSON value here) and treats the
+  // string as both its own data and nonce.
   const parse = (raw) => {
     if (raw == null) return null
     try {

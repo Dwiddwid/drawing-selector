@@ -173,5 +173,40 @@ describe('platform helpers', () => {
       ch.close()
       vi.useRealTimers()
     })
+
+    it('delivers a new poll-only trigger after baselining a stale value (the Safari reload case)', () => {
+      // End-to-end of the bug: the projector reloads with the previous draw's
+      // value still in localStorage (baselined, must not replay), then the admin
+      // posts a *new* trigger that Safari delivers by poll only (no storage
+      // event). It must reach the handler exactly once.
+      setProtocol('file:')
+      vi.useFakeTimers()
+      localStorage.setItem(
+        'drawing_trigger',
+        JSON.stringify({ data: 'Go!', nonce: 7 }),
+      )
+      const ch = createTriggerChannel()
+      const received = []
+      ch.onMessage((data) => received.push(data))
+
+      // Stale value: baselined, not replayed.
+      vi.advanceTimersByTime(300)
+      expect(received).toEqual([])
+
+      // A genuinely new trigger lands in shared storage with no storage event.
+      localStorage.setItem(
+        'drawing_trigger',
+        JSON.stringify({ data: 'Go!', nonce: 8 }),
+      )
+      vi.advanceTimersByTime(300)
+      expect(received).toEqual(['Go!'])
+
+      // And it isn't re-delivered on the next poll.
+      vi.advanceTimersByTime(300)
+      expect(received).toEqual(['Go!'])
+
+      ch.close()
+      vi.useRealTimers()
+    })
   })
 })
