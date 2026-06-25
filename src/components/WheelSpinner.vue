@@ -6,7 +6,10 @@ const props = defineProps({
   segments: { type: Array, required: true }, // [{ label, candidateIdx }]
   winnerSegmentIdx: { type: Number, required: true },
   active: { type: Boolean, default: false }, // when true, begin spinning
+  // Timed spin length. Infinity = 'manual' mode: free-spin until `stopRequested`
+  // flips true, then settle onto the winner.
   durationMs: { type: Number, default: 4200 },
+  stopRequested: { type: Boolean, default: false },
   size: { type: Number, default: 480 },
   // Giant mode: the wheel is blown up so its center sits well below the visible
   // area. Only the top arc shows, so names scroll on/off as it spins and every
@@ -233,16 +236,29 @@ function drawGiantLabel(ctx, cx, cy, r, start, segAngle, label) {
   ctx.restore()
 }
 
+// Manual mode: free-spin speed (rad/s) and how long the settle-to-winner
+// ease-out runs once the operator presses Stop.
+const FREE_SPIN_SPEED = Math.PI * 1.4
+const SETTLE_MS = 2200
+
 function spin() {
   if (props.winnerSegmentIdx < 0 || segCount.value === 0) {
     emit('done')
     return
   }
-  const startRot = rotation
-  const finalRot = targetRotation(props.winnerSegmentIdx, segCount.value)
-  const start = performance.now()
-  const dur = props.durationMs
+  if (Number.isFinite(props.durationMs)) {
+    // Timed: a single ease-out over durationMs onto the pre-picked winner.
+    easeTo(targetRotation(props.winnerSegmentIdx, segCount.value), props.durationMs)
+  } else {
+    freeSpin()
+  }
+}
 
+// Ease the wheel from its current rotation to `finalRot` over `dur` ms, then
+// normalize and emit done.
+function easeTo(finalRot, dur) {
+  const startRot = rotation
+  const start = performance.now()
   const step = (now) => {
     const t = Math.min(1, (now - start) / dur)
     // Ease-out quintic — feels like a real wheel slowing under friction.
@@ -258,6 +274,28 @@ function spin() {
     }
   }
   rafId = requestAnimationFrame(step)
+}
+
+// Spin at a constant speed until the operator presses Stop, then settle onto the
+// winner from wherever the wheel happens to be — landing forward with a couple
+// of extra turns for showmanship.
+function freeSpin() {
+  let last = performance.now()
+  const loop = (now) => {
+    const dt = Math.max(0, (now - last) / 1000)
+    last = now
+    rotation += FREE_SPIN_SPEED * dt
+    renderFrame()
+    if (props.stopRequested) {
+      const orient = targetRotation(props.winnerSegmentIdx, segCount.value, 0)
+      let delta = (orient - rotation) % (Math.PI * 2)
+      if (delta < 0) delta += Math.PI * 2
+      easeTo(rotation + delta + Math.PI * 2 * 2, SETTLE_MS)
+    } else {
+      rafId = requestAnimationFrame(loop)
+    }
+  }
+  rafId = requestAnimationFrame(loop)
 }
 
 function onResize() {

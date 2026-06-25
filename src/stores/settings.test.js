@@ -214,6 +214,67 @@ describe('settings store', () => {
     })
   })
 
+  describe('drawTiming', () => {
+    it('defaults to fixed ~4.5s', () => {
+      const settings = useSettingsStore()
+      expect(settings.drawTiming).toEqual({
+        mode: 'fixed',
+        fixedMs: 4500,
+        minMs: 3000,
+        maxMs: 8000,
+      })
+    })
+
+    it('updateDrawTiming patches, validates the mode, and persists', () => {
+      const settings = useSettingsStore()
+      settings.updateDrawTiming({ mode: 'random', minMs: 1000, maxMs: 5000 })
+      expect(settings.drawTiming).toMatchObject({ mode: 'random', minMs: 1000, maxMs: 5000 })
+      // An unknown mode is rejected, keeping the prior value.
+      settings.updateDrawTiming({ mode: 'disco' })
+      expect(settings.drawTiming.mode).toBe('random')
+      expect(JSON.parse(localStorage.getItem('settings')).drawTiming.mode).toBe('random')
+    })
+
+    it('updateDrawTiming clamps out-of-range durations', () => {
+      const settings = useSettingsStore()
+      settings.updateDrawTiming({ fixedMs: 0, minMs: 999999 })
+      expect(settings.drawTiming.fixedMs).toBe(500) // MIN_DRAW_MS
+      expect(settings.drawTiming.minMs).toBe(30000) // MAX_DRAW_MS
+    })
+
+    it('mergeSettings fills drawTiming defaults for older blobs that lack it', () => {
+      const merged = mergeSettings({ isPro: true, animationStyle: 'classic' })
+      expect(merged.drawTiming).toEqual(defaultSettings().drawTiming)
+    })
+
+    it('mergeSettings validates mode and clamps durations from a stored blob', () => {
+      const merged = mergeSettings({
+        drawTiming: { mode: 'bogus', fixedMs: 100, minMs: 50, maxMs: 99999 },
+      })
+      expect(merged.drawTiming.mode).toBe('fixed')
+      expect(merged.drawTiming.fixedMs).toBe(500)
+      expect(merged.drawTiming.minMs).toBe(500)
+      expect(merged.drawTiming.maxMs).toBe(30000)
+    })
+
+    it('persists and reloads drawTiming round-trip', () => {
+      const settings = useSettingsStore()
+      settings.updateDrawTiming({ mode: 'manual' })
+
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.drawTiming.mode).toBe('manual')
+    })
+
+    it('resetSettings restores drawTiming defaults', () => {
+      const settings = useSettingsStore()
+      settings.updateDrawTiming({ mode: 'manual', fixedMs: 9000 })
+      settings.resetSettings()
+      expect(settings.drawTiming).toEqual(defaultSettings().drawTiming)
+    })
+  })
+
   describe('animation & celebration', () => {
     it('defaults to the classic style with confetti and sound enabled', () => {
       const settings = useSettingsStore()

@@ -4,6 +4,7 @@ import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
 import { formatWinnerName, visibleWinnerFields } from '../utils/winnerDisplay.js'
 import { onChannelMessage } from '../utils/sync.js'
+import { resolveDrawDuration } from '../utils/drawTiming.js'
 import { celebrate } from '../utils/celebration.js'
 import { buildWheelSegments, wheelColorsFromTheme } from '../utils/wheel.js'
 import WheelSpinner from '../components/WheelSpinner.vue'
@@ -32,6 +33,13 @@ const wheelSegments = ref([])
 const wheelWinnerSegmentIdx = ref(-1)
 const pendingWinnerIdx = ref(-1)
 
+// This draw's resolved animation length (ms), decided once per draw on the
+// screen that runs the animation. Infinity = 'manual' (free-spin until stopped).
+const drawDurationMs = ref(4200)
+// Flips true when the operator presses Stop (admin window) during a 'manual'
+// draw — passed to the wheel components and mirrored to the store for classic.
+const manualStopRequested = ref(false)
+
 // A draw can only run when the (filtered) pool has at least one entry. The store
 // refuses to spin when totalEntries is 0 — e.g. a Draw Filter that excludes
 // everyone, or all remaining candidates having 0 entries — so GO! and the
@@ -52,6 +60,11 @@ function startDraw(targetId = null) {
   // honors the admin's current Draw Filter selection. In single-window mode
   // the store is already up-to-date, so this is a cheap no-op in that case.
   store.loadFilters()
+  // Decide this draw's length once, here on the screen that runs the animation,
+  // so random durations and manual stop are resolved in exactly one place.
+  manualStopRequested.value = false
+  const durationMs = resolveDrawDuration(settings.drawTiming)
+  drawDurationMs.value = durationMs
   if (isWheel.value || isPriceWheel.value) {
     if (!store.beginVisualSpin()) return
     const idx = targetId
@@ -74,8 +87,8 @@ function startDraw(targetId = null) {
     wheelWinnerSegmentIdx.value = winnerSegmentIdx
     wheelActive.value = true
   } else {
-    if (targetId) store.selectSpecificCandidate(targetId, settings.animationStyle)
-    else store.selectRandomCandidate(settings.animationStyle)
+    if (targetId) store.selectSpecificCandidate(targetId, settings.animationStyle, { durationMs })
+    else store.selectRandomCandidate(settings.animationStyle, { durationMs })
   }
 }
 
@@ -94,6 +107,12 @@ function onWheelDone() {
 const unsubscribe = onChannelMessage((msg) => {
   if (msg.type === 'trigger') startDraw()
   if (msg.type === 'manual-trigger') startDraw(msg.targetId)
+  if (msg.type === 'stop') {
+    // End a 'manual' draw: the wheel components watch this prop to settle; the
+    // classic loop reads the store flag. Both ignore it when not free-spinning.
+    manualStopRequested.value = true
+    store.requestManualStop()
+  }
 })
 onBeforeUnmount(() => unsubscribe())
 
@@ -205,6 +224,8 @@ watch(
           :segments="wheelSegments"
           :winner-segment-idx="wheelWinnerSegmentIdx"
           :active="wheelActive"
+          :duration-ms="drawDurationMs"
+          :stop-requested="manualStopRequested"
           :colors="wheelColors"
           :pointer-color="settings.spinner.pointerColor"
           :giant-zoom="settings.spinner.giantZoom"
@@ -216,6 +237,8 @@ watch(
           :segments="wheelSegments"
           :winner-segment-idx="wheelWinnerSegmentIdx"
           :active="wheelActive"
+          :duration-ms="drawDurationMs"
+          :stop-requested="manualStopRequested"
           :colors="wheelColors"
           :pointer-color="settings.spinner.pointerColor"
           @done="onWheelDone"
@@ -293,6 +316,8 @@ watch(
             :segments="wheelSegments"
             :winner-segment-idx="wheelWinnerSegmentIdx"
             :active="wheelActive"
+            :duration-ms="drawDurationMs"
+            :stop-requested="manualStopRequested"
             :colors="wheelColors"
             :pointer-color="settings.spinner.pointerColor"
             :size="settings.spinner.size"

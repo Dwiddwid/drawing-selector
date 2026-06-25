@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { DEFAULT_WHEEL_COLORS } from '../utils/wheel.js'
 import { broadcastSync } from '../utils/sync.js'
+import { DRAW_TIMING_MODES, clampDrawMs } from '../utils/drawTiming.js'
 
 const SETTINGS_KEY = 'settings'
 
@@ -47,6 +48,18 @@ export function defaultSettings() {
     // identical across styles; the variant tweaks timing curves and adds a CSS
     // class so each looks/feels distinct.
     animationStyle: 'classic', // 'classic' | 'wheel' | 'reel'
+    // How long the reveal animation runs, independent of style.
+    //   'fixed'  — every draw lasts `fixedMs`.
+    //   'random' — each draw lasts a random duration in [minMs, maxMs].
+    //   'manual' — the operator starts the spin and stops it by hand from the
+    //     admin window (see HomeView + the channel 'stop' message).
+    // Defaults to a fixed ~4.5 s so existing installs feel unchanged.
+    drawTiming: {
+      mode: 'fixed',
+      fixedMs: 4500,
+      minMs: 3000,
+      maxMs: 8000,
+    },
     // Post-reveal celebration. Both are opt-out so existing installs keep the
     // bigger-feeling default presentation.
     celebration: {
@@ -137,6 +150,11 @@ export function mergeSettings(stored) {
   if (!BACKGROUND_STYLES.includes(theme.backgroundStyle)) {
     theme.backgroundStyle = base.theme.backgroundStyle
   }
+  const drawTiming = { ...base.drawTiming, ...(stored.drawTiming || {}) }
+  if (!DRAW_TIMING_MODES.includes(drawTiming.mode)) drawTiming.mode = base.drawTiming.mode
+  drawTiming.fixedMs = clampDrawMs(drawTiming.fixedMs, base.drawTiming.fixedMs)
+  drawTiming.minMs = clampDrawMs(drawTiming.minMs, base.drawTiming.minMs)
+  drawTiming.maxMs = clampDrawMs(drawTiming.maxMs, base.drawTiming.maxMs)
   const spinner = { ...base.spinner, ...(stored.spinner || {}) }
   if (!SPINNER_COLOR_MODES.includes(spinner.colorMode)) spinner.colorMode = base.spinner.colorMode
   if (!SPINNER_POSITIONS.includes(spinner.position)) spinner.position = base.spinner.position
@@ -155,6 +173,7 @@ export function mergeSettings(stored) {
     animationStyle: ANIMATION_STYLES.includes(stored.animationStyle)
       ? stored.animationStyle
       : base.animationStyle,
+    drawTiming,
     celebration: { ...base.celebration, ...(stored.celebration || {}) },
     spinner,
     participantList: (() => {
@@ -180,6 +199,7 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.theme = merged.theme
       this.winnerDisplay = merged.winnerDisplay
       this.animationStyle = merged.animationStyle
+      this.drawTiming = merged.drawTiming
       this.celebration = merged.celebration
       this.spinner = merged.spinner
       this.participantList = merged.participantList
@@ -193,6 +213,7 @@ export const useSettingsStore = defineStore('settingsStore', {
             theme: this.theme,
             winnerDisplay: this.winnerDisplay,
             animationStyle: this.animationStyle,
+            drawTiming: this.drawTiming,
             celebration: this.celebration,
             spinner: this.spinner,
             participantList: this.participantList,
@@ -207,6 +228,15 @@ export const useSettingsStore = defineStore('settingsStore', {
     },
     setAnimationStyle(value) {
       this.animationStyle = ANIMATION_STYLES.includes(value) ? value : 'classic'
+      this.persist()
+    },
+    updateDrawTiming(partial) {
+      const next = { ...this.drawTiming, ...partial }
+      if (!DRAW_TIMING_MODES.includes(next.mode)) next.mode = this.drawTiming.mode
+      next.fixedMs = clampDrawMs(next.fixedMs, this.drawTiming.fixedMs)
+      next.minMs = clampDrawMs(next.minMs, this.drawTiming.minMs)
+      next.maxMs = clampDrawMs(next.maxMs, this.drawTiming.maxMs)
+      this.drawTiming = next
       this.persist()
     },
     updateCelebration(partial) {
@@ -292,6 +322,7 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.theme = fresh.theme
       this.winnerDisplay = fresh.winnerDisplay
       this.animationStyle = fresh.animationStyle
+      this.drawTiming = fresh.drawTiming
       this.celebration = fresh.celebration
       this.spinner = fresh.spinner
       this.participantList = fresh.participantList

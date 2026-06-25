@@ -24,6 +24,11 @@ const animationStyles = [
   { title: 'Giant wheel (names scroll past)', value: 'wheel-giant' },
   { title: 'Price Is Right wheel', value: 'reel' },
 ]
+const drawTimingModes = [
+  { title: 'Fixed duration', value: 'fixed' },
+  { title: 'Random duration (range)', value: 'random' },
+  { title: 'Manual stop (from admin)', value: 'manual' },
+]
 
 // Theme color pickers. Optional entries are overrides that fall back to
 // another palette color when unset (null) — exactly how the drawing screen
@@ -514,6 +519,83 @@ function resetAll() {
               label="Reveal animation"
               density="compact"
             />
+
+            <v-divider class="my-3" />
+            <div class="text-subtitle-2 mb-2">Draw timing</div>
+            <v-select
+              :model-value="settings.drawTiming.mode"
+              @update:model-value="settings.updateDrawTiming({ mode: $event })"
+              :items="drawTimingModes"
+              label="How long the animation runs"
+              density="compact"
+            />
+
+            <template v-if="settings.drawTiming.mode === 'fixed'">
+              <v-slider
+                :model-value="settings.drawTiming.fixedMs / 1000"
+                @update:model-value="settings.updateDrawTiming({ fixedMs: Math.round($event * 1000) })"
+                label="Duration"
+                :min="0.5"
+                :max="30"
+                :step="0.5"
+                thumb-label
+                hide-details
+                class="mb-1"
+              >
+                <template #append>
+                  <span class="text-body-2" style="min-width: 3.5rem">
+                    {{ (settings.drawTiming.fixedMs / 1000).toFixed(1) }}s
+                  </span>
+                </template>
+              </v-slider>
+            </template>
+
+            <template v-else-if="settings.drawTiming.mode === 'random'">
+              <v-slider
+                :model-value="settings.drawTiming.minMs / 1000"
+                @update:model-value="settings.updateDrawTiming({ minMs: Math.round($event * 1000) })"
+                label="Minimum"
+                :min="0.5"
+                :max="30"
+                :step="0.5"
+                thumb-label
+                hide-details
+                class="mb-1"
+              >
+                <template #append>
+                  <span class="text-body-2" style="min-width: 3.5rem">
+                    {{ (settings.drawTiming.minMs / 1000).toFixed(1) }}s
+                  </span>
+                </template>
+              </v-slider>
+              <v-slider
+                :model-value="settings.drawTiming.maxMs / 1000"
+                @update:model-value="settings.updateDrawTiming({ maxMs: Math.round($event * 1000) })"
+                label="Maximum"
+                :min="0.5"
+                :max="30"
+                :step="0.5"
+                thumb-label
+                hide-details
+                class="mb-1"
+              >
+                <template #append>
+                  <span class="text-body-2" style="min-width: 3.5rem">
+                    {{ (settings.drawTiming.maxMs / 1000).toFixed(1) }}s
+                  </span>
+                </template>
+              </v-slider>
+              <p class="text-body-2 text-medium-emphasis">
+                Each draw runs a random length between these two. If the minimum is
+                above the maximum they're simply swapped.
+              </p>
+            </template>
+
+            <p v-else class="text-body-2 text-medium-emphasis">
+              The spinner runs until you stop it. Open the drawing screen on a
+              second display (enable multi-display mode), then use “Start draw” and
+              “Stop” on this admin window to build and release the suspense.
+            </p>
 
             <template v-if="isWheelStyle">
               <v-divider class="my-3" />
