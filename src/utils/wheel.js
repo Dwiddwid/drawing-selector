@@ -106,6 +106,20 @@ export function targetRotation(winnerSegmentIdx, segmentCount, fullSpins = 5) {
   return pointerAngle - segCenter + Math.PI * 2 * fullSpins
 }
 
+// Settle rotation (radians) for the wheel's *manual* mode: from an arbitrary
+// `currentRot` (the wheel is mid free-spin), return a final rotation that always
+// sweeps FORWARD and lands `winnerSegmentIdx` under the pointer, with
+// `extraTurns` full revolutions of showmanship. The orientation (mod 2π) equals
+// targetRotation()'s, so the same winner ends up under the pointer.
+export function settleRotation(currentRot, winnerSegmentIdx, segmentCount, extraTurns = 2) {
+  if (segmentCount <= 0) return currentRot
+  const TWO_PI = Math.PI * 2
+  const orient = targetRotation(winnerSegmentIdx, segmentCount, 0)
+  let delta = (orient - currentRot) % TWO_PI
+  if (delta < 0) delta += TWO_PI
+  return currentRot + delta + TWO_PI * extraTurns
+}
+
 // Final drum rotation (DEGREES) that brings `winnerIdx`'s panel to the front-
 // center of the vertical reel, where the side pointer sits. Each panel `i` is
 // mounted around the drum at rotateX(i · 360/n); rotating the drum by the
@@ -116,6 +130,18 @@ export function reelDrumRotation(winnerIdx, n, turns = 6) {
   if (n <= 0) return 0
   const seg = 360 / n
   return turns * 360 - winnerIdx * seg
+}
+
+// Settle rotation (DEGREES) for the reel's *manual* mode: from an arbitrary
+// `currentRot`, return a final drum rotation that always sweeps FORWARD and
+// brings `winnerIdx`'s panel to the front, with `extraTurns` extra revolutions.
+// The orientation (mod 360) equals reelDrumRotation()'s, so the same winner
+// lands at the front.
+export function settleDrumRotation(currentRot, winnerIdx, n, extraTurns = 2) {
+  if (n <= 0) return currentRot
+  const target = reelDrumRotation(winnerIdx, n, 0)
+  const delta = (((target - currentRot) % 360) + 360) % 360
+  return currentRot + delta + 360 * extraTurns
 }
 
 // Price Is Right flapper motion. Pegs sit on the segment boundaries; as each peg

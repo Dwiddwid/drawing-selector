@@ -1,6 +1,11 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { reelDrumRotation, flapperDeflection, DEFAULT_WHEEL_COLORS } from '../utils/wheel.js'
+import {
+  reelDrumRotation,
+  settleDrumRotation,
+  flapperDeflection,
+  DEFAULT_WHEEL_COLORS,
+} from '../utils/wheel.js'
 
 // The Price Is Right "Big Wheel" seen the way the audience sees it: on edge. The
 // wheel is a giant vertical drum — names roll down from the top of the screen,
@@ -157,9 +162,7 @@ function freeSpin() {
     last = now
     rotation.value += FREE_SPIN_SPEED_DEG * dt
     if (props.stopRequested) {
-      const target = reelDrumRotation(props.winnerSegmentIdx, n.value, 0)
-      const delta = (((target - rotation.value) % 360) + 360) % 360
-      easeTo(rotation.value + delta + 360 * 2, SETTLE_MS)
+      easeTo(settleDrumRotation(rotation.value, props.winnerSegmentIdx, n.value), SETTLE_MS)
     } else {
       rafId = requestAnimationFrame(loop)
     }

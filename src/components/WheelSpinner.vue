@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
-import { targetRotation, DEFAULT_WHEEL_COLORS } from '../utils/wheel.js'
+import { targetRotation, settleRotation, DEFAULT_WHEEL_COLORS } from '../utils/wheel.js'
 
 const props = defineProps({
   segments: { type: Array, required: true }, // [{ label, candidateIdx }]
@@ -287,10 +287,7 @@ function freeSpin() {
     rotation += FREE_SPIN_SPEED * dt
     renderFrame()
     if (props.stopRequested) {
-      const orient = targetRotation(props.winnerSegmentIdx, segCount.value, 0)
-      let delta = (orient - rotation) % (Math.PI * 2)
-      if (delta < 0) delta += Math.PI * 2
-      easeTo(rotation + delta + Math.PI * 2 * 2, SETTLE_MS)
+      easeTo(settleRotation(rotation, props.winnerSegmentIdx, segCount.value), SETTLE_MS)
     } else {
       rafId = requestAnimationFrame(loop)
     }

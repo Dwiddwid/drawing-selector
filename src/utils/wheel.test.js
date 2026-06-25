@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   buildWheelSegments,
   targetRotation,
+  settleRotation,
   reelDrumRotation,
+  settleDrumRotation,
   flapperDeflection,
   MAX_WHEEL_SEGMENTS,
   DEFAULT_WHEEL_COLORS,
@@ -158,6 +160,38 @@ describe('targetRotation', () => {
   })
 })
 
+describe('settleRotation (manual-mode wheel)', () => {
+  const TWO_PI = Math.PI * 2
+
+  it('lands the winner under the pointer from any starting rotation', () => {
+    const n = 8
+    const winnerSeg = 3
+    const segAngle = TWO_PI / n
+    const segCenter = winnerSeg * segAngle + segAngle / 2
+    // The wheel could be stopped anywhere mid free-spin — try a spread of starts.
+    for (const cur of [0, 0.7, 3.3, -2.1, 12.9, 100.4]) {
+      const rot = settleRotation(cur, winnerSeg, n)
+      const finalAngle = rot + segCenter
+      const norm = Math.atan2(Math.sin(finalAngle), Math.cos(finalAngle))
+      expect(norm).toBeCloseTo(-Math.PI / 2, 6)
+    }
+  })
+
+  it('always sweeps forward with at least the requested extra turns', () => {
+    for (const cur of [0, 1.2, 9.5, -4.4]) {
+      const rot = settleRotation(cur, 2, 8, 2)
+      const advance = rot - cur
+      expect(advance).toBeGreaterThanOrEqual(TWO_PI * 2)
+      // Forward delta is bounded: extra turns + at most one more revolution.
+      expect(advance).toBeLessThan(TWO_PI * 3 + 1e-9)
+    }
+  })
+
+  it('returns the current rotation for a zero-segment wheel', () => {
+    expect(settleRotation(5, 0, 0)).toBe(5)
+  })
+})
+
 describe('reelDrumRotation', () => {
   it('lands the winner panel squarely facing front (a whole number of turns)', () => {
     const n = 10
@@ -182,6 +216,32 @@ describe('reelDrumRotation', () => {
 
   it('returns 0 for a degenerate panel count', () => {
     expect(reelDrumRotation(0, 0)).toBe(0)
+  })
+})
+
+describe('settleDrumRotation (manual-mode reel)', () => {
+  it('brings the winner panel to the front from any starting rotation', () => {
+    const n = 10
+    const seg = 360 / n
+    for (const w of [0, 3, 9]) {
+      for (const cur of [0, 37, 412.5, -88, 1234]) {
+        const rot = settleDrumRotation(cur, w, n)
+        expect(((rot + w * seg) % 360 + 360) % 360).toBeCloseTo(0, 6)
+      }
+    }
+  })
+
+  it('always sweeps forward with at least the requested extra turns', () => {
+    for (const cur of [0, 50, 725, -30]) {
+      const rot = settleDrumRotation(cur, 4, 12, 2)
+      const advance = rot - cur
+      expect(advance).toBeGreaterThanOrEqual(360 * 2)
+      expect(advance).toBeLessThan(360 * 3 + 1e-9)
+    }
+  })
+
+  it('returns the current rotation for a degenerate panel count', () => {
+    expect(settleDrumRotation(42, 0, 0)).toBe(42)
   })
 })
 

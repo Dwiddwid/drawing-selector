@@ -55,7 +55,27 @@ const emptyMessage = computed(() =>
     : 'No candidates match the current draw filter.',
 )
 
+// Manual timing is stopped only from the admin window (there is no Stop control
+// on this screen by design). Without a separate admin window (multi-display),
+// a manual free-spin could never be stopped — so block starting one here.
+const manualNeedsAdmin = computed(
+  () => settings.drawTiming.mode === 'manual' && !store.useMultiDisplayMode,
+)
+// Whether the local GO! button / keyboard may start a draw.
+const canStart = computed(() => canDraw.value && !manualNeedsAdmin.value)
+// Why a local start is blocked (shown beneath GO!). The manual-needs-admin
+// reason takes precedence over an empty pool.
+const startHint = computed(() => {
+  if (manualNeedsAdmin.value) {
+    return 'Manual stop timing is controlled from the admin window — enable multi-display mode to start and stop draws.'
+  }
+  return canDraw.value ? '' : emptyMessage.value
+})
+
 function startDraw(targetId = null) {
+  // A single-window manual draw has no way to be stopped (Stop is admin-only),
+  // so refuse to start one. In multi-display this is false (the admin drives it).
+  if (manualNeedsAdmin.value) return
   // Reload filters from localStorage so a separate projector window always
   // honors the admin's current Draw Filter selection. In single-window mode
   // the store is already up-to-date, so this is a cheap no-op in that case.
@@ -127,7 +147,7 @@ function onKeydown(e) {
   // GO! button) so we don't double-trigger the draw.
   const tag = e.target?.tagName
   if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-  if (store.useMultiDisplayMode || store.spinning || wheelActive.value || !canDraw.value) return
+  if (store.useMultiDisplayMode || store.spinning || wheelActive.value || !canStart.value) return
   e.preventDefault()
   startDraw()
 }
@@ -282,7 +302,7 @@ watch(
 
           <v-btn
             v-if="!store.useMultiDisplayMode && !store.spinning"
-            :disabled="!canDraw"
+            :disabled="!canStart"
             variant="elevated"
             color="primary"
             class="giant-go go-btn"
@@ -292,10 +312,10 @@ watch(
           </v-btn>
 
           <div
-            v-if="!canDraw && !store.spinning && !store.selected"
+            v-if="startHint && !store.spinning && !store.selected"
             class="giant-empty"
           >
-            {{ emptyMessage }}
+            {{ startHint }}
           </div>
         </div>
       </template>
@@ -348,7 +368,7 @@ watch(
 
         <v-btn
           v-if="!store.useMultiDisplayMode && !store.spinning"
-          :disabled="!canDraw"
+          :disabled="!canStart"
           variant="elevated"
           color="primary"
           class="mt-6 go-btn"
@@ -358,10 +378,10 @@ watch(
         </v-btn>
 
         <div
-          v-if="!canDraw && !store.spinning && !store.selected"
+          v-if="startHint && !store.spinning && !store.selected"
           class="text-medium-emphasis mt-2"
         >
-          {{ emptyMessage }}
+          {{ startHint }}
         </div>
       </template>
 
@@ -401,17 +421,17 @@ watch(
         <v-card-actions v-if="!store.useMultiDisplayMode">
           <v-btn
             v-show="!store.spinning"
-            :disabled="!canDraw"
+            :disabled="!canStart"
             variant="elevated"
             color="primary"
             @click="startDraw()"
             >GO!</v-btn
           >
           <div
-            v-if="!canDraw && !store.spinning"
+            v-if="startHint && !store.spinning"
             class="text-medium-emphasis mt-2"
           >
-            {{ emptyMessage }}
+            {{ startHint }}
           </div>
         </v-card-actions>
       </v-card>
