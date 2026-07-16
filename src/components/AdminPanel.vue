@@ -1,13 +1,28 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import ParticipantsTab from './admin/ParticipantsTab.vue'
 import WinnersTab from './admin/WinnersTab.vue'
 import DataTab from './admin/DataTab.vue'
 import EventSettings from './EventSettings.vue'
+import { useSettingsStore } from '../stores/settings.js'
 
 // Thin tabbed shell — each tab owns its own logic and reports back through the
 // shared `notify` snackbar (with an optional undo action).
 const tab = ref('participants')
+
+// Settings saves fail silently in the store when localStorage is full (usually
+// a large logo/background data URL); surface each failure here so the operator
+// learns the change won't survive a reload.
+const settings = useSettingsStore()
+watch(
+  () => settings.persistErrorCount,
+  () => {
+    notify(
+      'Settings could not be saved — browser storage is full (a large logo or background image is the usual cause). Changes apply this session only.',
+      'warning',
+    )
+  },
+)
 
 const snackbar = ref(false)
 const snackbarColor = ref('success')

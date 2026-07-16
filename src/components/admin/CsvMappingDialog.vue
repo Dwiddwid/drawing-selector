@@ -7,8 +7,16 @@ const props = defineProps({
   headers: { type: Array, default: () => [] },
   preview: { type: Array, default: () => [] },
   rowCount: { type: Number, default: 0 },
+  // Delimiter the source text was parsed with. Shown with a manual override
+  // for delimited-text sources; hidden (showParseOptions=false) for sources
+  // that have no delimiter, like Excel sheets or JSON lists.
+  delimiter: { type: String, default: ',' },
+  showParseOptions: { type: Boolean, default: true },
+  // Data rows whose cell count didn't match the header row — usually a sign
+  // the wrong delimiter was picked.
+  raggedRows: { type: Number, default: 0 },
 })
-const emit = defineEmits(['update:modelValue', 'confirm', 'cancel'])
+const emit = defineEmits(['update:modelValue', 'confirm', 'cancel', 'update:delimiter'])
 
 const roleOptions = [
   { title: 'Name / Title', value: 'name' },
@@ -16,6 +24,12 @@ const roleOptions = [
   { title: 'ID', value: 'id' },
   { title: 'Entries / count', value: 'entries' },
   { title: 'Skip', value: 'skip' },
+]
+
+const delimiterOptions = [
+  { title: 'Comma ( , )', value: ',' },
+  { title: 'Semicolon ( ; )', value: ';' },
+  { title: 'Tab', value: '\t' },
 ]
 
 // Roles that are identity/weight metadata, not display fields — their label is
@@ -110,6 +124,29 @@ function cancel() {
           in this file ({{ rowCount }} row{{ rowCount === 1 ? '' : 's' }}) maps onto your draw.
           Mark at least one column as <em>Name / Title</em>.
         </p>
+
+        <v-select
+          v-if="showParseOptions"
+          :model-value="delimiter"
+          @update:model-value="emit('update:delimiter', $event)"
+          :items="delimiterOptions"
+          label="Column separator"
+          density="compact"
+          variant="outlined"
+          hide-details
+          class="mb-3 delimiter-select"
+        />
+
+        <v-alert
+          v-if="raggedRows > 0"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mb-3"
+        >
+          {{ raggedRows }} row{{ raggedRows === 1 ? ' has' : 's have' }} a different number of
+          cells than the header row — if the preview looks wrong, try another column separator.
+        </v-alert>
 
         <v-table density="compact">
           <thead>
@@ -239,3 +276,9 @@ function cancel() {
     </v-card>
   </v-dialog>
 </template>
+
+<style scoped>
+.delimiter-select {
+  max-width: 16rem;
+}
+</style>

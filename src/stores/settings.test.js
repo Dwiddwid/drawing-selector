@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useSettingsStore, defaultSettings, mergeSettings, clampDrawCount } from './settings.js'
 
@@ -392,6 +392,21 @@ describe('settings store', () => {
       expect(mergeSettings({ drawCount: 50 }).drawCount).toBe(20)
       expect(mergeSettings({ multiWinnerReveal: 'sequential' }).multiWinnerReveal).toBe('sequential')
       expect(mergeSettings({ multiWinnerReveal: 'nope' }).multiWinnerReveal).toBe('simultaneous')
+    })
+
+    it('persist() reports storage failures instead of swallowing them', () => {
+      const settings = useSettingsStore()
+      expect(settings.persist()).toBe(true)
+      expect(settings.persistErrorCount).toBe(0)
+
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota exceeded', 'QuotaExceededError')
+      })
+      expect(settings.persist()).toBe(false)
+      expect(settings.persistErrorCount).toBe(1)
+      expect(settings.persist()).toBe(false)
+      expect(settings.persistErrorCount).toBe(2)
+      spy.mockRestore()
     })
 
     it('resetSettings restores the multi-winner defaults', () => {

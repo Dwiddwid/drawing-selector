@@ -214,7 +214,9 @@ export function mergeSettings(stored) {
 }
 
 export const useSettingsStore = defineStore('settingsStore', {
-  state: () => defaultSettings(),
+  // persistErrorCount is session-only bookkeeping (never serialized): it bumps
+  // when a save fails so the admin UI can toast a storage-full warning.
+  state: () => ({ ...defaultSettings(), persistErrorCount: 0 }),
   actions: {
     loadFromStorage() {
       const merged = mergeSettings(readJSON(SETTINGS_KEY, null))
@@ -248,10 +250,13 @@ export const useSettingsStore = defineStore('settingsStore', {
         )
       } catch {
         // Quota exceeded (large background image / logo data URLs). The
-        // in-memory settings still apply for this session.
-        return
+        // in-memory settings still apply for this session; bump the counter so
+        // the admin UI can warn that the change won't survive a reload.
+        this.persistErrorCount += 1
+        return false
       }
       broadcastSync('settings')
+      return true
     },
     setAnimationStyle(value) {
       this.animationStyle = ANIMATION_STYLES.includes(value) ? value : 'classic'

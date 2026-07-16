@@ -12,16 +12,62 @@ export function uid() {
   return `p_${Date.now().toString(36)}_${uidCounter}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-// Parse raw CSV text into ordered headers and row objects.
-// Handles quoted fields containing commas/newlines, escaped "" quotes, and
+// Delimiters we can parse. Comma is the classic CSV; semicolon is what Excel
+// exports in many European locales; tab covers TSV files and text pasted
+// straight out of a spreadsheet.
+export const CSV_DELIMITERS = [',', ';', '\t']
+
+// Guess the delimiter by counting candidate characters outside quoted regions
+// across the first few non-empty lines. Highest total wins; comma wins ties
+// (and a single-column file with no delimiter at all).
+export function detectDelimiter(text) {
+  const source = String(text ?? '')
+  const counts = { ',': 0, ';': 0, '\t': 0 }
+  let inQuotes = false
+  let lines = 0
+  let lineHadContent = false
+  for (let i = 0; i < source.length && lines < 10; i++) {
+    const c = source[i]
+    if (inQuotes) {
+      if (c === '"') inQuotes = false
+      continue
+    }
+    if (c === '"') inQuotes = true
+    else if (c === '\n' || c === '\r') {
+      if (lineHadContent) lines += 1
+      lineHadContent = false
+      if (c === '\r' && source[i + 1] === '\n') i++
+    } else {
+      if (c.trim() !== '') lineHadContent = true
+      if (c in counts) counts[c] += 1
+    }
+  }
+  // Tie-break order = declaration order: ',' > ';' > '\t'.
+  let best = ','
+  for (const d of CSV_DELIMITERS) {
+    if (counts[d] > counts[best]) best = d
+  }
+  return best
+}
+
+// Parse raw CSV/TSV text into ordered headers and row objects.
+// Handles quoted fields containing delimiters/newlines, escaped "" quotes, and
 // \r\n / \r / \n line endings. Trims headers and values; skips blank lines.
-export function parseCsv(text) {
+//   delimiter — ',', ';' or '\t'; auto-detected when omitted.
+//   hasHeader — false treats every row as data and synthesizes headers
+//     ('Name', 'Column 2', …), so a plain one-name-per-line paste auto-maps
+//     its only column to the name role.
+// Returns { headers, rows, delimiter, raggedRows } — `delimiter` is the one
+// actually used, `raggedRows` counts data rows whose raw cell count differs
+// from the header row (usually a sign the wrong delimiter was picked).
+export function parseCsv(text, { delimiter, hasHeader = true } = {}) {
   // Strip a leading UTF-8 BOM (U+FEFF). Spreadsheet exports (e.g. Excel "CSV
   // UTF-8") prepend one; left in place it becomes part of the first header
   // ("Person" with a hidden BOM), breaking alias auto-detection and field-key
   // matching.
   const raw = String(text ?? '')
   const source = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw
+  const delim = CSV_DELIMITERS.includes(delimiter) ? delimiter : detectDelimiter(source)
   const rows = []
   let row = []
   let field = ''
@@ -56,7 +102,7 @@ export function parseCsv(text) {
 
     if (c === '"') {
       inQuotes = true
-    } else if (c === ',') {
+    } else if (c === delim) {
       endField()
     } else if (c === '\n') {
       endRow()
@@ -71,11 +117,22 @@ export function parseCsv(text) {
 
   const nonEmpty = rows.filter((cells) => cells.some((cell) => cell.trim() !== ''))
   if (nonEmpty.length === 0) {
-    return { headers: [], rows: [] }
+    return { headers: [], rows: [], delimiter: delim, raggedRows: 0 }
   }
 
-  const headers = nonEmpty[0].map((h) => h.trim())
-  const dataRows = nonEmpty.slice(1).map((cells) => {
+  // Headerless input (e.g. a pasted name list): synthesize headers sized to the
+  // widest row. 'Name' matches the single-name aliases, so the first column
+  // auto-maps to the name role in the import dialog.
+  const headers = hasHeader
+    ? nonEmpty[0].map((h) => h.trim())
+    : Array.from(
+        { length: Math.max(...nonEmpty.map((cells) => cells.length)) },
+        (_, j) => (j === 0 ? 'Name' : `Column ${j + 1}`),
+      )
+  const cellRows = hasHeader ? nonEmpty.slice(1) : nonEmpty
+  let raggedRows = 0
+  const dataRows = cellRows.map((cells) => {
+    if (cells.length !== headers.length) raggedRows += 1
     const obj = {}
     headers.forEach((h, j) => {
       obj[h] = (cells[j] ?? '').trim()
@@ -83,7 +140,42 @@ export function parseCsv(text) {
     return obj
   })
 
-  return { headers, rows: dataRows }
+  return { headers, rows: dataRows, delimiter: delim, raggedRows }
+}
+
+// Convert a parsed JSON array of flat objects into the same { headers, rows }
+// tabular shape parseCsv produces, so a JSON participant list flows through the
+// standard mapping dialog. Headers are the union of keys in first-appearance
+// order; values are stringified (nested objects/arrays as JSON).
+export function tabularizeJsonList(parsed) {
+  if (!Array.isArray(parsed)) {
+    throw new Error('JSON participant list must be an array of objects.')
+  }
+  const headers = []
+  const seen = new Set()
+  for (let i = 0; i < parsed.length; i++) {
+    const item = parsed[i]
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`JSON list entry at index ${i} is not an object.`)
+    }
+    for (const key of Object.keys(item)) {
+      if (!seen.has(key)) {
+        seen.add(key)
+        headers.push(key)
+      }
+    }
+  }
+  const toCell = (v) => {
+    if (v == null) return ''
+    if (typeof v === 'object') return JSON.stringify(v)
+    return String(v).trim()
+  }
+  const rows = parsed.map((item) => {
+    const obj = {}
+    for (const h of headers) obj[h] = toCell(item[h])
+    return obj
+  })
+  return { headers, rows }
 }
 
 const normHeader = (h) => h.toLowerCase().replace(/[\s_]+/g, '')

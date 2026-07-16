@@ -16,6 +16,12 @@ const portable = process.env.PORTABLE === 'true'
 // https://vitejs.dev/config/
 export default defineConfig({
   base: portable ? './' : '/',
+  // Build-time flag so portable-only dead code (e.g. the lazy SheetJS import,
+  // which vite-plugin-singlefile would otherwise inline wholesale) is dropped
+  // statically from the single-file build.
+  define: {
+    __PORTABLE_BUILD__: JSON.stringify(portable),
+  },
   plugins: [
     vue(),
     Vuetify({ autoImport: true }),

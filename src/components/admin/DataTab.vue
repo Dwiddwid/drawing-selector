@@ -2,23 +2,44 @@
 import { ref, computed } from 'vue'
 import { useParticipantStore } from '../../stores/participants.js'
 import { useSettingsStore, mergeSettings } from '../../stores/settings.js'
-import { parseCsv, normalizeWithMapping } from '../../utils/csv.js'
+import { parseCsv, tabularizeJsonList, normalizeWithMapping } from '../../utils/csv.js'
 import { collectFieldKeys } from '../../utils/winnerDisplay.js'
 import { exportStateJson, deserializeState } from '../../utils/export.js'
 import CsvMappingDialog from './CsvMappingDialog.vue'
+import PasteListDialog from './PasteListDialog.vue'
 
 const emit = defineEmits(['notify'])
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
 
+// Excel import needs SheetJS, which the portable single-file build excludes
+// (the flag is replaced at build time, so the whole code path — and the lazy
+// xlsx chunk behind it — drops out of that bundle).
+const excelSupported = typeof __PORTABLE_BUILD__ === 'undefined' || !__PORTABLE_BUILD__
+const importAccept = excelSupported ? '.csv,.tsv,.txt,.xlsx,.json' : '.csv,.tsv,.txt,.json'
+
 const myFile = ref(null)
 const stateFile = ref(null)
 
-// CSV column-mapping dialog state. `pendingCsv` holds the parsed file until the
-// user confirms a mapping.
+// Column-mapping dialog state. `pendingCsv` holds the parsed table until the
+// user confirms a mapping. For delimited-text sources (file or paste),
+// `pendingRaw`/`pendingHasHeader`/`pendingDelimiter` keep the original input so
+// the dialog's delimiter override can re-parse it; `pendingParseOptions` is
+// false for sources with no delimiter (Excel sheets, JSON lists).
 const mappingOpen = ref(false)
 const pendingCsv = ref({ headers: [], rows: [] })
+const pendingRaw = ref('')
+const pendingHasHeader = ref(true)
+const pendingDelimiter = ref(',')
+const pendingRagged = ref(0)
+const pendingParseOptions = ref(true)
+
+const pasteOpen = ref(false)
+
+// Sheet picker for multi-sheet Excel workbooks.
+const sheetChoices = ref([]) // [{ name, headers, rows }]
+const sheetPickerOpen = ref(false)
 
 // Reset-confirmation dialog. `pendingReset` is 'candidates' | 'winners' | null.
 const pendingReset = ref(null)
@@ -34,13 +55,127 @@ function notify(text, color, undoAction = null) {
   emit('notify', text, color, undoAction)
 }
 
+// Funnel any delimited-text source (file or paste) through one parse + dialog
+// path. Re-invoked with an explicit delimiter when the operator overrides the
+// auto-detected one in the mapping dialog.
+function openMapping(rawText, { hasHeader = true, delimiter } = {}) {
+  const { headers, rows, delimiter: used, raggedRows } = parseCsv(rawText, {
+    hasHeader,
+    delimiter,
+  })
+  if (headers.length === 0 || rows.length === 0) {
+    notify('No participants found in that file.', 'warning')
+    return
+  }
+  pendingRaw.value = rawText
+  pendingHasHeader.value = hasHeader
+  pendingDelimiter.value = used
+  pendingRagged.value = raggedRows
+  pendingParseOptions.value = true
+  pendingCsv.value = { headers, rows }
+  mappingOpen.value = true
+}
+
+// A table that arrived without a delimiter (Excel sheet, JSON list) — no
+// separator override to offer, nothing to re-parse.
+function openMappingForTable({ headers, rows }) {
+  if (headers.length === 0 || rows.length === 0) {
+    notify('No participants found in that file.', 'warning')
+    return
+  }
+  pendingRaw.value = ''
+  pendingRagged.value = 0
+  pendingParseOptions.value = false
+  pendingCsv.value = { headers, rows }
+  mappingOpen.value = true
+}
+
+function onDelimiterOverride(delimiter) {
+  // Only delimited-text sources keep the raw input around.
+  if (!pendingRaw.value) return
+  openMapping(pendingRaw.value, { hasHeader: pendingHasHeader.value, delimiter })
+}
+
+function onPasteConfirm({ text, hasHeader }) {
+  openMapping(text, { hasHeader })
+}
+
+async function importExcelFile(file) {
+  // Static flag check keeps SheetJS (and this whole path) out of the portable
+  // single-file build.
+  if (!excelSupported) {
+    notify('Excel import isn’t available in the Offline Edition — save the sheet as CSV instead.', 'error')
+    return
+  }
+  try {
+    const { parseWorkbook } = await import('../../utils/excel.js')
+    const buffer = await file.arrayBuffer()
+    const sheets = await parseWorkbook(buffer)
+    if (sheets.length === 0) {
+      notify('No participants found in that workbook.', 'warning')
+      return
+    }
+    if (sheets.length === 1) {
+      openMappingForTable(sheets[0])
+    } else {
+      sheetChoices.value = sheets
+      sheetPickerOpen.value = true
+    }
+  } catch {
+    notify('Could not read that Excel file.', 'error')
+  }
+}
+
+function chooseSheet(sheet) {
+  sheetPickerOpen.value = false
+  sheetChoices.value = []
+  openMappingForTable(sheet)
+}
+
+function importJsonList(text) {
+  // Two kinds of .json can land here: a plain participant array (import it
+  // through the mapping dialog) or a full state backup (point at Restore).
+  let parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    notify('Invalid JSON file.', 'error')
+    return
+  }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
+      (Array.isArray(parsed.candidates) || Array.isArray(parsed.winners))) {
+    notify('This looks like a full backup — use “Import state (JSON)” under Backup / Restore below.', 'warning')
+    return
+  }
+  try {
+    openMappingForTable(tabularizeJsonList(parsed))
+  } catch (err) {
+    notify(err.message || 'Could not read that file.', 'error')
+  }
+}
+
 function selectedFile() {
   const file = myFile.value?.files?.[0]
   if (!file) return
 
-  const looksLikeCsv = /\.csv$/i.test(file.name) || (file.type && file.type.includes('csv'))
-  if (!looksLikeCsv) {
-    notify('Please choose a .csv file.', 'error')
+  const name = file.name || ''
+  if (/\.xlsx$/i.test(name)) {
+    importExcelFile(file)
+    return
+  }
+
+  const isJson = /\.json$/i.test(name) || (file.type && file.type.includes('json'))
+  const looksLikeText =
+    isJson ||
+    /\.(csv|tsv|txt)$/i.test(name) ||
+    (file.type && (file.type.includes('csv') || file.type.startsWith('text/')))
+  if (!looksLikeText) {
+    notify(
+      excelSupported
+        ? 'Please choose a .csv, .tsv, .txt, .xlsx or .json file.'
+        : 'Please choose a .csv, .tsv, .txt or .json file.',
+      'error',
+    )
     return
   }
 
@@ -48,13 +183,8 @@ function selectedFile() {
   reader.readAsText(file, 'UTF-8')
   reader.onload = (evt) => {
     try {
-      const { headers, rows } = parseCsv(evt.target.result)
-      if (headers.length === 0 || rows.length === 0) {
-        notify('No participants found in that file.', 'warning')
-        return
-      }
-      pendingCsv.value = { headers, rows }
-      mappingOpen.value = true
+      if (isJson) importJsonList(evt.target.result)
+      else openMapping(evt.target.result)
     } catch (err) {
       notify(err.message || 'Could not read that file.', 'error')
     }
@@ -91,8 +221,18 @@ function onMappingConfirm({ mapping, mode }) {
   if (imported || !merged) parts.push(`${imported} participant${imported === 1 ? '' : 's'}`)
   if (merged) parts.push(`entries to ${merged} returning participant${merged === 1 ? '' : 's'}`)
   let message = `${verb} ${parts.join(' and ')}`
-  if (skipped) message += ` (skipped ${skipped} duplicate${skipped === 1 ? '' : 's'})`
+  const notes = []
+  if (skipped) notes.push(`skipped ${skipped} duplicate${skipped === 1 ? '' : 's'}`)
+  // Rows normalizeWithMapping dropped for having no name / no display fields.
+  const skippedEmpty = pendingCsv.value.rows.length - list.length
+  if (skippedEmpty > 0) notes.push(`${skippedEmpty} row${skippedEmpty === 1 ? '' : 's'} skipped — no name`)
+  if (notes.length) message += ` (${notes.join('; ')})`
   notify(message, 'success')
+  // A pool where every entry count is 0 imports fine but can never draw —
+  // easier to hear it now than on the projector screen later.
+  if (store.candidates.length > 0 && store.totalEntries === 0) {
+    notify('Heads up: every candidate has 0 entries, so no one can be drawn.', 'warning')
+  }
   resetFileInput()
 }
 
@@ -104,6 +244,11 @@ function onMappingCancel() {
 // Clear the file input so re-selecting the same file fires @change again.
 function resetFileInput() {
   pendingCsv.value = { headers: [], rows: [] }
+  pendingRaw.value = ''
+  pendingHasHeader.value = true
+  pendingDelimiter.value = ','
+  pendingRagged.value = 0
+  pendingParseOptions.value = true
   myFile.value = null
 }
 
@@ -215,9 +360,21 @@ function importStateFile() {
     <template v-slot:title> Manage </template>
 
     <template v-slot:text>
-      <p>Choose a .csv file of candidates to import.</p>
+      <p>
+        Import candidates from a file
+        ({{ excelSupported ? 'CSV, TSV, Excel or JSON' : 'CSV, TSV or JSON' }})
+        or paste a list straight from a spreadsheet.
+      </p>
 
-      <v-file-input label="Import CSV" ref="myFile" @change="selectedFile" accept=".csv" />
+      <v-file-input
+        label="Import participants"
+        ref="myFile"
+        @change="selectedFile"
+        :accept="importAccept"
+      />
+      <v-btn class="mr-2 mb-2" prepend-icon="fas fa-paste" @click="pasteOpen = true">
+        Paste a list
+      </v-btn>
       <v-btn class="mr-2 mb-2" @click="askResetCandidates">Reset candidates</v-btn>
       <v-btn class="mb-2" @click="askResetWinners">Reset winners</v-btn>
     </template>
@@ -228,9 +385,39 @@ function importStateFile() {
     :headers="pendingCsv.headers"
     :preview="pendingCsv.rows"
     :row-count="pendingCsv.rows.length"
+    :delimiter="pendingDelimiter"
+    :ragged-rows="pendingRagged"
+    :show-parse-options="pendingParseOptions"
+    @update:delimiter="onDelimiterOverride"
     @confirm="onMappingConfirm"
     @cancel="onMappingCancel"
   />
+
+  <PasteListDialog v-model="pasteOpen" @confirm="onPasteConfirm" />
+
+  <v-dialog v-model="sheetPickerOpen" max-width="460">
+    <v-card>
+      <v-card-title>Choose a sheet</v-card-title>
+      <v-card-text>
+        <p class="text-body-2 text-medium-emphasis mb-2">
+          This workbook has several sheets with data — pick the one to import.
+        </p>
+        <v-list density="compact">
+          <v-list-item
+            v-for="sheet in sheetChoices"
+            :key="sheet.name"
+            :title="sheet.name"
+            :subtitle="`${sheet.rows.length} row${sheet.rows.length === 1 ? '' : 's'}`"
+            @click="chooseSheet(sheet)"
+          />
+        </v-list>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="sheetPickerOpen = false">Cancel</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 
   <v-card prepend-icon="fas fa-floppy-disk" variant="outlined">
     <template v-slot:title> Backup / Restore </template>

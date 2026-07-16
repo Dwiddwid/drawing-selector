@@ -34,6 +34,20 @@ export function exportStateJson(candidates, winners, settings) {
   triggerDownload(payload, 'drawing-state.json', 'application/json')
 }
 
+// Each element must be a current { fields } participant or a migratable legacy
+// { firstName / lastName / extras } record — anything else would crash
+// migrateParticipant (or worse, reach the store and break the next draw).
+function assertImportableParticipant(p, listName, i) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) {
+    throw new Error(`Invalid ${listName} entry at index ${i} — expected an object.`)
+  }
+  const hasFields = p.fields && typeof p.fields === 'object' && !Array.isArray(p.fields)
+  const legacy = 'firstName' in p || 'lastName' in p || 'extras' in p
+  if (!hasFields && !legacy) {
+    throw new Error(`Invalid ${listName} entry at index ${i} — missing a "fields" map.`)
+  }
+}
+
 export function deserializeState(json) {
   let parsed
   try {
@@ -41,9 +55,14 @@ export function deserializeState(json) {
   } catch {
     throw new Error('Invalid JSON file.')
   }
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('JSON must have "candidates" and "winners" arrays.')
+  }
   if (!Array.isArray(parsed.candidates) || !Array.isArray(parsed.winners)) {
     throw new Error('JSON must have "candidates" and "winners" arrays.')
   }
+  parsed.candidates.forEach((p, i) => assertImportableParticipant(p, 'candidates', i))
+  parsed.winners.forEach((p, i) => assertImportableParticipant(p, 'winners', i))
   // Migrate any legacy { firstName, lastName, extras } records from older
   // backups to the generic { id, fields } shape.
   const result = {
