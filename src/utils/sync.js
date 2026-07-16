@@ -5,6 +5,10 @@
 // transports). Messages are typed objects:
 //
 //   { v: 1, type: 'trigger' }                                  — start a draw
+//   { v: 1, type: 'manual-trigger', targetId }                 — start a draw
+//     that lands on a specific participant
+//   { v: 1, type: 'stop' }                                     — stop an
+//     in-progress 'manual'-timed draw (admin presses Stop)
 //   { v: 1, type: 'sync', scope: 'participants' | 'settings' } — "re-read this
 //     store from localStorage"
 //
@@ -36,6 +40,12 @@ export function postTrigger() {
 
 export function postManualTrigger(targetId) {
   getChannel()?.postMessage({ v: 1, type: 'manual-trigger', targetId })
+}
+
+// Tell the drawing screen to stop an in-progress 'manual'-timed draw, so it
+// decelerates to the winner. Paired with the admin window's Stop button.
+export function postStop() {
+  getChannel()?.postMessage({ v: 1, type: 'stop' })
 }
 
 export function broadcastSync(scope) {

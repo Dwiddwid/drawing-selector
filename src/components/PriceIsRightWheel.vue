@@ -1,6 +1,11 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { reelDrumRotation, flapperDeflection, DEFAULT_WHEEL_COLORS } from '../utils/wheel.js'
+import {
+  reelDrumRotation,
+  settleDrumRotation,
+  flapperDeflection,
+  DEFAULT_WHEEL_COLORS,
+} from '../utils/wheel.js'
 
 // The Price Is Right "Big Wheel" seen the way the audience sees it: on edge. The
 // wheel is a giant vertical drum — names roll down from the top of the screen,
@@ -16,7 +21,10 @@ const props = defineProps({
   segments: { type: Array, required: true }, // [{ label, candidateIdx }]
   winnerSegmentIdx: { type: Number, required: true },
   active: { type: Boolean, default: false }, // when true, begin spinning
+  // Timed spin length. Infinity = 'manual' mode: free-spin until `stopRequested`
+  // flips true, then settle onto the winner.
   durationMs: { type: Number, default: 5200 },
+  stopRequested: { type: Boolean, default: false },
   colors: {
     type: Array,
     default: () => [...DEFAULT_WHEEL_COLORS],
@@ -104,18 +112,31 @@ const pointerStyle = computed(() => {
   }
 })
 
+// Manual mode: free-spin speed (deg/s) and how long the settle-to-winner
+// ease-out runs once the operator presses Stop.
+const FREE_SPIN_SPEED_DEG = 300
+const SETTLE_MS = 2200
+
 function spin() {
   if (props.winnerSegmentIdx < 0 || n.value === 0) {
     emit('done')
     return
   }
-  const startRot = rotation.value
-  // Land the winner at the front, sweeping forward from where we are now.
-  const target = reelDrumRotation(props.winnerSegmentIdx, n.value)
-  const finalRot = startRot + ((target - startRot) % 360) + 360 * 6
-  const start = performance.now()
-  const dur = props.durationMs
+  if (Number.isFinite(props.durationMs)) {
+    // Land the winner at the front, sweeping forward from where we are now.
+    const target = reelDrumRotation(props.winnerSegmentIdx, n.value)
+    const finalRot = rotation.value + ((target - rotation.value) % 360) + 360 * 6
+    easeTo(finalRot, props.durationMs)
+  } else {
+    freeSpin()
+  }
+}
 
+// Ease the drum from its current rotation to `finalRot` over `dur` ms, then
+// normalize and emit done.
+function easeTo(finalRot, dur) {
+  const startRot = rotation.value
+  const start = performance.now()
   const stepFrame = (now) => {
     const t = Math.min(1, (now - start) / dur)
     // Ease-out quintic — a heavy wheel slowing under friction.
@@ -129,6 +150,24 @@ function spin() {
     }
   }
   rafId = requestAnimationFrame(stepFrame)
+}
+
+// Spin at a constant speed until the operator presses Stop, then settle the
+// winner's panel to the front from wherever the drum is, plus a couple of extra
+// turns for showmanship.
+function freeSpin() {
+  let last = performance.now()
+  const loop = (now) => {
+    const dt = Math.max(0, (now - last) / 1000)
+    last = now
+    rotation.value += FREE_SPIN_SPEED_DEG * dt
+    if (props.stopRequested) {
+      easeTo(settleDrumRotation(rotation.value, props.winnerSegmentIdx, n.value), SETTLE_MS)
+    } else {
+      rafId = requestAnimationFrame(loop)
+    }
+  }
+  rafId = requestAnimationFrame(loop)
 }
 
 onMounted(() => {

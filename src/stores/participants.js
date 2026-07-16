@@ -24,6 +24,22 @@ export const ANIMATION_TIMING = {
   wheel: { baseDelay: 30, step: 25, maxDelay: 750, minRandom: 200 },
 }
 
+// Wall-clock length (ms) of the deceleration phase for a timing curve: the sum
+// of the increasing per-tick delays once the slow-down begins, until the delay
+// exceeds maxDelay and the spin stops. The configured draw duration is treated
+// as the *total*, so the fast phase is shortened by this tail to keep the
+// operator's number honest.
+export function decelTailMs(timing) {
+  let delay = timing.baseDelay
+  let total = 0
+  while (true) {
+    delay += timing.step
+    if (delay < timing.maxDelay) total += delay
+    else break
+  }
+  return total
+}
+
 export const useParticipantStore = defineStore('participantStore', {
   state: () => ({
     candidates: [],
@@ -31,6 +47,9 @@ export const useParticipantStore = defineStore('participantStore', {
     index: -1,
     selected: null,
     spinning: false,
+    // Set by requestManualStop() to tell an in-progress 'manual' classic spin to
+    // begin decelerating. Reset at the start/end of each spin.
+    manualStop: false,
     useMultiDisplayMode: false,
     filters: [],
     // Snapshots of the most recent reset so the operator can undo an
@@ -339,31 +358,52 @@ export const useParticipantStore = defineStore('participantStore', {
       this.commitSelection()
       return true
     },
-    // Shared slot-machine animation loop. Cycles the pointer with an
-    // accelerating delay; once it stops, `resolveWinner()` fixes the final
-    // `this.index` (a no-op for a random draw — the last tick already set it)
-    // and the pointed-at candidate is committed.
-    runSpinAnimation(style, resolveWinner) {
+    // Request that an in-progress 'manual'-timed spin start slowing to a stop.
+    // A no-op for fixed/random draws (they decelerate on their own schedule).
+    requestManualStop() {
+      this.manualStop = true
+    },
+    // Shared slot-machine animation loop. Cycles the pointer at the base delay,
+    // then decelerates to a stop; once stopped, `resolveWinner()` fixes the final
+    // `this.index` (a no-op for a random draw — the last tick already set it) and
+    // the pointed-at candidate is committed.
+    //
+    // `durationMs` is the target *total* animation length:
+    //   finite — run fast for (durationMs − decel tail), then decelerate, so the
+    //     whole reveal lands near durationMs. Counted in base-delay ticks so it
+    //     stays deterministic under fake timers. Values below the decel tail
+    //     collapse to a single fast tick (the tail is the practical minimum).
+    //   Infinity ('manual') — stay fast until requestManualStop() is called, then
+    //     decelerate.
+    runSpinAnimation(style, resolveWinner, { durationMs = 4500 } = {}) {
       const timing = ANIMATION_TIMING[style] ?? ANIMATION_TIMING.classic
       this.spinning = true
       this.selected = null
+      this.manualStop = false
       // A committed draw renders any prior reset-undo meaningless.
       this.clearResetUndo()
 
-      const timeBeforeSlow = Math.floor(Math.random() * timing.minRandom)
+      const manual = !Number.isFinite(durationMs)
+      const fastMs = Math.max(timing.baseDelay, durationMs - decelTailMs(timing))
+      const fastTicks = manual ? Infinity : Math.max(1, Math.round(fastMs / timing.baseDelay))
       let i = 0
       let delay = timing.baseDelay
+      let decelerating = false
 
       const tick = () => {
         this.pointToRandomCandidate()
         i += 1
-        if (i > timeBeforeSlow) {
+        if (!decelerating && (manual ? this.manualStop : i >= fastTicks)) {
+          decelerating = true
+        }
+        if (decelerating) {
           delay += timing.step
         }
         if (delay < timing.maxDelay) {
           setTimeout(tick, delay)
         } else {
           this.spinning = false
+          this.manualStop = false
           resolveWinner()
           this.commitSelection()
         }
@@ -376,12 +416,16 @@ export const useParticipantStore = defineStore('participantStore', {
     // end. A manual pick is an explicit operator override, so it intentionally
     // ignores the active draw filter (unlike the random draw, which is gated on
     // the filtered pool via totalEntries).
-    selectSpecificCandidate(id, style = 'classic') {
+    selectSpecificCandidate(id, style = 'classic', { durationMs } = {}) {
       if (this.spinning) return false
       if (this.candidates.findIndex((c) => c.id === id) < 0) return false
-      this.runSpinAnimation(style, () => {
-        this.index = this.candidates.findIndex((c) => c.id === id)
-      })
+      this.runSpinAnimation(
+        style,
+        () => {
+          this.index = this.candidates.findIndex((c) => c.id === id)
+        },
+        { durationMs },
+      )
       return true
     },
     // Add a participant directly to winners without any animation (admin-only path).
@@ -392,10 +436,10 @@ export const useParticipantStore = defineStore('participantStore', {
       this.commitSelection()
       return true
     },
-    selectRandomCandidate(style = 'classic') {
+    selectRandomCandidate(style = 'classic', { durationMs } = {}) {
       if (this.spinning) return false
       if (this.totalEntries === 0) return false
-      this.runSpinAnimation(style, () => {})
+      this.runSpinAnimation(style, () => {}, { durationMs })
       return true
     },
   },

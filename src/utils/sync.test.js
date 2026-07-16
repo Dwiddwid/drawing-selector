@@ -1,5 +1,6 @@
 import {
   postTrigger,
+  postStop,
   broadcastSync,
   onChannelMessage,
   normalizeChannelMessage,
@@ -32,6 +33,11 @@ describe('sync channel', () => {
       expect(normalizeChannelMessage(null).type).toBe('trigger')
       expect(normalizeChannelMessage({ foo: 1 }).type).toBe('trigger')
     })
+
+    it('passes a stop message through unchanged', () => {
+      const msg = { v: 1, type: 'stop' }
+      expect(normalizeChannelMessage(msg)).toBe(msg)
+    })
   })
 
   describe('web transport (BroadcastChannel)', () => {
@@ -44,6 +50,17 @@ describe('sync channel', () => {
       })
       receiver.close()
       expect(received).toEqual({ v: 1, type: 'trigger' })
+    })
+
+    it('postStop delivers a typed stop to another channel', async () => {
+      setProtocol('https:')
+      const receiver = createTriggerChannel()
+      const received = await new Promise((resolve) => {
+        receiver.onMessage((data) => resolve(data))
+        postStop()
+      })
+      receiver.close()
+      expect(received).toEqual({ v: 1, type: 'stop' })
     })
 
     it('broadcastSync delivers the scope', async () => {

@@ -23,6 +23,17 @@ Single Pinia store. All localStorage writes go through `persistCandidates()` /
 starts fast and slows by incrementing `delay` — do not replace with
 `setInterval` (the interval is not fixed).
 
+The reveal length is configurable via `settings.drawTiming`
+(`{ mode: 'fixed' | 'random' | 'manual', fixedMs, minMs, maxMs }`).
+`resolveDrawDuration()` ([utils/drawTiming.js](src/utils/drawTiming.js)) turns it
+into a concrete duration (or `Infinity` for `manual`) **on the drawing screen**,
+which is threaded into `runSpinAnimation({ durationMs })` (classic loop) and the
+wheel components' `durationMs` prop. The classic loop treats `durationMs` as the
+*total*, subtracting the deceleration tail (`decelTailMs`) so the fast phase plus
+slow-down lands near it. In `manual` mode the spin free-runs until the operator
+presses Stop on the admin window (HomeView), which posts a `{ type: 'stop' }`
+channel message → `store.requestManualStop()` + the wheels' `stopRequested` prop.
+
 Key actions:
 | Action | Effect |
 |---|---|

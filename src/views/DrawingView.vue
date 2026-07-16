@@ -4,6 +4,7 @@ import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
 import { formatWinnerName, visibleWinnerFields } from '../utils/winnerDisplay.js'
 import { onChannelMessage } from '../utils/sync.js'
+import { resolveDrawDuration } from '../utils/drawTiming.js'
 import { celebrate } from '../utils/celebration.js'
 import { buildWheelSegments, wheelColorsFromTheme } from '../utils/wheel.js'
 import WheelSpinner from '../components/WheelSpinner.vue'
@@ -32,6 +33,13 @@ const wheelSegments = ref([])
 const wheelWinnerSegmentIdx = ref(-1)
 const pendingWinnerIdx = ref(-1)
 
+// This draw's resolved animation length (ms), decided once per draw on the
+// screen that runs the animation. Infinity = 'manual' (free-spin until stopped).
+const drawDurationMs = ref(4200)
+// Flips true when the operator presses Stop (admin window) during a 'manual'
+// draw — passed to the wheel components and mirrored to the store for classic.
+const manualStopRequested = ref(false)
+
 // A draw can only run when the (filtered) pool has at least one entry. The store
 // refuses to spin when totalEntries is 0 — e.g. a Draw Filter that excludes
 // everyone, or all remaining candidates having 0 entries — so GO! and the
@@ -47,11 +55,36 @@ const emptyMessage = computed(() =>
     : 'No candidates match the current draw filter.',
 )
 
+// Manual timing is stopped only from the admin window (there is no Stop control
+// on this screen by design). Without a separate admin window (multi-display),
+// a manual free-spin could never be stopped — so block starting one here.
+const manualNeedsAdmin = computed(
+  () => settings.drawTiming.mode === 'manual' && !store.useMultiDisplayMode,
+)
+// Whether the local GO! button / keyboard may start a draw.
+const canStart = computed(() => canDraw.value && !manualNeedsAdmin.value)
+// Why a local start is blocked (shown beneath GO!). The manual-needs-admin
+// reason takes precedence over an empty pool.
+const startHint = computed(() => {
+  if (manualNeedsAdmin.value) {
+    return 'Manual stop timing is controlled from the admin window — enable multi-display mode to start and stop draws.'
+  }
+  return canDraw.value ? '' : emptyMessage.value
+})
+
 function startDraw(targetId = null) {
+  // A single-window manual draw has no way to be stopped (Stop is admin-only),
+  // so refuse to start one. In multi-display this is false (the admin drives it).
+  if (manualNeedsAdmin.value) return
   // Reload filters from localStorage so a separate projector window always
   // honors the admin's current Draw Filter selection. In single-window mode
   // the store is already up-to-date, so this is a cheap no-op in that case.
   store.loadFilters()
+  // Decide this draw's length once, here on the screen that runs the animation,
+  // so random durations and manual stop are resolved in exactly one place.
+  manualStopRequested.value = false
+  const durationMs = resolveDrawDuration(settings.drawTiming)
+  drawDurationMs.value = durationMs
   if (isWheel.value || isPriceWheel.value) {
     if (!store.beginVisualSpin()) return
     const idx = targetId
@@ -74,8 +107,8 @@ function startDraw(targetId = null) {
     wheelWinnerSegmentIdx.value = winnerSegmentIdx
     wheelActive.value = true
   } else {
-    if (targetId) store.selectSpecificCandidate(targetId, settings.animationStyle)
-    else store.selectRandomCandidate(settings.animationStyle)
+    if (targetId) store.selectSpecificCandidate(targetId, settings.animationStyle, { durationMs })
+    else store.selectRandomCandidate(settings.animationStyle, { durationMs })
   }
 }
 
@@ -94,6 +127,12 @@ function onWheelDone() {
 const unsubscribe = onChannelMessage((msg) => {
   if (msg.type === 'trigger') startDraw()
   if (msg.type === 'manual-trigger') startDraw(msg.targetId)
+  if (msg.type === 'stop') {
+    // End a 'manual' draw: the wheel components watch this prop to settle; the
+    // classic loop reads the store flag. Both ignore it when not free-spinning.
+    manualStopRequested.value = true
+    store.requestManualStop()
+  }
 })
 onBeforeUnmount(() => unsubscribe())
 
@@ -108,7 +147,7 @@ function onKeydown(e) {
   // GO! button) so we don't double-trigger the draw.
   const tag = e.target?.tagName
   if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-  if (store.useMultiDisplayMode || store.spinning || wheelActive.value || !canDraw.value) return
+  if (store.useMultiDisplayMode || store.spinning || wheelActive.value || !canStart.value) return
   e.preventDefault()
   startDraw()
 }
@@ -205,6 +244,8 @@ watch(
           :segments="wheelSegments"
           :winner-segment-idx="wheelWinnerSegmentIdx"
           :active="wheelActive"
+          :duration-ms="drawDurationMs"
+          :stop-requested="manualStopRequested"
           :colors="wheelColors"
           :pointer-color="settings.spinner.pointerColor"
           :giant-zoom="settings.spinner.giantZoom"
@@ -216,6 +257,8 @@ watch(
           :segments="wheelSegments"
           :winner-segment-idx="wheelWinnerSegmentIdx"
           :active="wheelActive"
+          :duration-ms="drawDurationMs"
+          :stop-requested="manualStopRequested"
           :colors="wheelColors"
           :pointer-color="settings.spinner.pointerColor"
           @done="onWheelDone"
@@ -259,7 +302,7 @@ watch(
 
           <v-btn
             v-if="!store.useMultiDisplayMode && !store.spinning"
-            :disabled="!canDraw"
+            :disabled="!canStart"
             variant="elevated"
             color="primary"
             class="giant-go go-btn"
@@ -269,10 +312,10 @@ watch(
           </v-btn>
 
           <div
-            v-if="!canDraw && !store.spinning && !store.selected"
+            v-if="startHint && !store.spinning && !store.selected"
             class="giant-empty"
           >
-            {{ emptyMessage }}
+            {{ startHint }}
           </div>
         </div>
       </template>
@@ -293,6 +336,8 @@ watch(
             :segments="wheelSegments"
             :winner-segment-idx="wheelWinnerSegmentIdx"
             :active="wheelActive"
+            :duration-ms="drawDurationMs"
+            :stop-requested="manualStopRequested"
             :colors="wheelColors"
             :pointer-color="settings.spinner.pointerColor"
             :size="settings.spinner.size"
@@ -323,7 +368,7 @@ watch(
 
         <v-btn
           v-if="!store.useMultiDisplayMode && !store.spinning"
-          :disabled="!canDraw"
+          :disabled="!canStart"
           variant="elevated"
           color="primary"
           class="mt-6 go-btn"
@@ -333,10 +378,10 @@ watch(
         </v-btn>
 
         <div
-          v-if="!canDraw && !store.spinning && !store.selected"
+          v-if="startHint && !store.spinning && !store.selected"
           class="text-medium-emphasis mt-2"
         >
-          {{ emptyMessage }}
+          {{ startHint }}
         </div>
       </template>
 
@@ -376,17 +421,17 @@ watch(
         <v-card-actions v-if="!store.useMultiDisplayMode">
           <v-btn
             v-show="!store.spinning"
-            :disabled="!canDraw"
+            :disabled="!canStart"
             variant="elevated"
             color="primary"
             @click="startDraw()"
             >GO!</v-btn
           >
           <div
-            v-if="!canDraw && !store.spinning"
+            v-if="startHint && !store.spinning"
             class="text-medium-emphasis mt-2"
           >
-            {{ emptyMessage }}
+            {{ startHint }}
           </div>
         </v-card-actions>
       </v-card>

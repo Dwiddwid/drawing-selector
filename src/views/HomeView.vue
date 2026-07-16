@@ -4,11 +4,15 @@ import Title from '../components/Title.vue'
 import { useParticipantStore } from '../stores/participants.js'
 import { useSettingsStore } from '../stores/settings.js'
 import { ref } from 'vue'
-import { postTrigger } from '../utils/sync.js'
+import { postTrigger, postStop } from '../utils/sync.js'
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
 const multiDisplay = ref(store.useMultiDisplayMode)
+
+// Tracks whether a 'manual'-timed draw the operator started is still spinning,
+// so the button can flip between "Start draw" and "Stop".
+const manualSpinning = ref(false)
 
 function saveMultiDisplay() {
   store.setMultiDisplayMode(multiDisplay.value)
@@ -19,6 +23,19 @@ function selectWinner() {
   // (BroadcastChannel) and in the portable file:// build (localStorage-event
   // fallback).
   postTrigger()
+}
+
+// Manual-timing flow: Start kicks off a free-spin on the drawing screen, Stop
+// tells it to decelerate to the winner. Both travel the same channel as the
+// regular trigger.
+function startManualDraw() {
+  postTrigger()
+  manualSpinning.value = true
+}
+
+function stopManualDraw() {
+  postStop()
+  manualSpinning.value = false
 }
 </script>
 
@@ -38,10 +55,27 @@ function selectWinner() {
                   <nav>
                     <v-btn to="/drawing">Start drawing</v-btn>
                     <!-- :target="store.useMultiDisplayMode ? '_blank' : ''" -->
-                    <v-btn v-if="store.useMultiDisplayMode" @click="selectWinner">
-                      Select winner
-                    </v-btn>
+                    <template v-if="store.useMultiDisplayMode">
+                      <!-- Manual timing: a Start/Stop toggle drives the spin on
+                           the drawing screen. Fixed/random just trigger once. -->
+                      <template v-if="settings.drawTiming.mode === 'manual'">
+                        <v-btn v-if="!manualSpinning" @click="startManualDraw">
+                          Start draw
+                        </v-btn>
+                        <v-btn v-else color="error" @click="stopManualDraw">
+                          Stop
+                        </v-btn>
+                      </template>
+                      <v-btn v-else @click="selectWinner">Select winner</v-btn>
+                    </template>
                   </nav>
+                  <p
+                    v-if="settings.drawTiming.mode === 'manual' && !store.useMultiDisplayMode"
+                    class="text-caption text-medium-emphasis mt-1"
+                  >
+                    Manual stop timing needs the drawing screen open separately —
+                    enable multi-display mode to start and stop draws from here.
+                  </p>
                 </v-col>
                 <v-col>
                   <v-checkbox

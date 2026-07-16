@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useParticipantStore, ANIMATION_TIMING } from './participants.js'
+import { useParticipantStore, ANIMATION_TIMING, decelTailMs } from './participants.js'
 import { useSettingsStore } from './settings.js'
 
 function person(firstName, lastName, extras = {}) {
@@ -470,6 +470,54 @@ describe('participant store', () => {
       expect(store.winners).toHaveLength(1)
     })
 
+    it('a finite durationMs draw completes and commits one winner', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+
+      expect(store.selectRandomCandidate('classic', { durationMs: 300 })).toBe(true)
+      expect(store.spinning).toBe(true)
+      vi.runAllTimers()
+      expect(store.spinning).toBe(false)
+      expect(store.winners).toHaveLength(1)
+    })
+
+    it('a manual draw keeps spinning until requestManualStop, then commits', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+
+      expect(store.selectRandomCandidate('classic', { durationMs: Infinity })).toBe(true)
+      expect(store.spinning).toBe(true)
+
+      // Free-spin: still going after a long time with no stop requested.
+      vi.advanceTimersByTime(10000)
+      expect(store.spinning).toBe(true)
+      expect(store.winners).toHaveLength(0)
+
+      // Operator stops it — the spin decelerates and commits exactly one winner.
+      store.requestManualStop()
+      vi.runAllTimers()
+      expect(store.spinning).toBe(false)
+      expect(store.manualStop).toBe(false)
+      expect(store.winners).toHaveLength(1)
+    })
+
+    it('selectSpecificCandidate honors manual timing and lands the target', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+
+      expect(store.selectSpecificCandidate('Alan-Turing', 'classic', { durationMs: Infinity })).toBe(
+        true,
+      )
+      vi.advanceTimersByTime(8000)
+      expect(store.spinning).toBe(true)
+
+      store.requestManualStop()
+      vi.runAllTimers()
+      expect(store.spinning).toBe(false)
+      expect(store.winners).toHaveLength(1)
+      expect(store.winners[0].id).toBe('Alan-Turing')
+    })
+
     it('committing a draw clears any prior reset-undo snapshot', () => {
       const store = useParticipantStore()
       store.candidates = [person('Ada', 'Lovelace')]
@@ -491,6 +539,13 @@ describe('participant store', () => {
         expect(t.baseDelay).toBeGreaterThan(0)
         expect(t.maxDelay).toBeGreaterThan(t.baseDelay)
       }
+    })
+
+    it('decelTailMs sums the slow-down delays for a timing curve', () => {
+      // classic: delays 60,110,…,460 before the 510 tick exceeds maxDelay(500).
+      expect(decelTailMs(ANIMATION_TIMING.classic)).toBe(2340)
+      // Always positive and shorter than maxDelay × a handful of ticks.
+      expect(decelTailMs(ANIMATION_TIMING.wheel)).toBeGreaterThan(0)
     })
   })
 
