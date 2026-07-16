@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useParticipantStore } from '../stores/participants.js'
-import { useSettingsStore } from '../stores/settings.js'
+import { useSettingsStore, MAX_DRAW_COUNT } from '../stores/settings.js'
 import { collectFieldKeys } from '../utils/winnerDisplay.js'
 import { THEME_PRESETS } from '../utils/themePresets.js'
 import { themeFromImageFile } from '../utils/themeFromImage.js'
@@ -28,6 +28,10 @@ const drawTimingModes = [
   { title: 'Fixed duration', value: 'fixed' },
   { title: 'Random duration (range)', value: 'random' },
   { title: 'Manual stop (from admin)', value: 'manual' },
+]
+const multiWinnerReveals = [
+  { title: 'All at once (when the style allows)', value: 'simultaneous' },
+  { title: 'One at a time', value: 'sequential' },
 ]
 
 // Theme color pickers. Optional entries are overrides that fall back to
@@ -596,6 +600,40 @@ function resetAll() {
               second display (enable multi-display mode), then use “Start draw” and
               “Stop” on this admin window to build and release the suspense.
             </p>
+
+            <v-divider class="my-3" />
+            <div class="text-subtitle-2 mb-2">Winners per draw</div>
+            <v-slider
+              :model-value="settings.drawCount"
+              @update:model-value="settings.setDrawCount(Math.round($event))"
+              :min="1"
+              :max="MAX_DRAW_COUNT"
+              :step="1"
+              thumb-label
+              hide-details
+              class="mb-1"
+            >
+              <template #append>
+                <span class="text-body-2" style="min-width: 3.5rem">
+                  {{ settings.drawCount }}
+                </span>
+              </template>
+            </v-slider>
+            <template v-if="settings.drawCount > 1">
+              <v-select
+                :model-value="settings.multiWinnerReveal"
+                @update:model-value="settings.setMultiWinnerReveal($event)"
+                :items="multiWinnerReveals"
+                label="Multi-winner reveal"
+                density="compact"
+                class="mt-2"
+              />
+              <p class="text-body-2 text-medium-emphasis">
+                “All at once” spins one panel per winner side by side (classic and
+                standard wheel styles). The giant wheel and reel always reveal one
+                winner at a time, ending with a roster of everyone drawn.
+              </p>
+            </template>
 
             <template v-if="isWheelStyle">
               <v-divider class="my-3" />

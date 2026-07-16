@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useSettingsStore, defaultSettings, mergeSettings } from './settings.js'
+import { useSettingsStore, defaultSettings, mergeSettings, clampDrawCount } from './settings.js'
 
 describe('settings store', () => {
   beforeEach(() => {
@@ -334,6 +334,73 @@ describe('settings store', () => {
       expect(reloaded.animationStyle).toBe('reel')
       expect(reloaded.celebration.confetti).toBe(false)
       expect(reloaded.celebration.sound).toBe(true)
+    })
+  })
+
+  describe('multi-winner draws', () => {
+    it('defaults to 1 winner per draw, revealed simultaneously', () => {
+      const settings = useSettingsStore()
+      expect(settings.drawCount).toBe(1)
+      expect(settings.multiWinnerReveal).toBe('simultaneous')
+    })
+
+    it('clampDrawCount floors, clamps to [1, 20], and falls back on junk', () => {
+      expect(clampDrawCount(3)).toBe(3)
+      expect(clampDrawCount(3.9)).toBe(3)
+      expect(clampDrawCount(0)).toBe(1)
+      expect(clampDrawCount(-5)).toBe(1)
+      expect(clampDrawCount(999)).toBe(20)
+      expect(clampDrawCount('abc')).toBe(1)
+      expect(clampDrawCount(undefined)).toBe(1)
+      expect(clampDrawCount('abc', 5)).toBe(5)
+      expect(clampDrawCount('7')).toBe(7)
+    })
+
+    it('setDrawCount clamps and persists round-trip', () => {
+      const settings = useSettingsStore()
+      settings.setDrawCount(5)
+      expect(settings.drawCount).toBe(5)
+      settings.setDrawCount(999)
+      expect(settings.drawCount).toBe(20)
+      settings.setDrawCount('junk') // keeps the current value
+      expect(settings.drawCount).toBe(20)
+
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.drawCount).toBe(20)
+    })
+
+    it('setMultiWinnerReveal accepts known modes and ignores junk', () => {
+      const settings = useSettingsStore()
+      settings.setMultiWinnerReveal('sequential')
+      expect(settings.multiWinnerReveal).toBe('sequential')
+      settings.setMultiWinnerReveal('made-up')
+      expect(settings.multiWinnerReveal).toBe('sequential')
+
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.multiWinnerReveal).toBe('sequential')
+    })
+
+    it('mergeSettings fills defaults for older blobs and validates values', () => {
+      expect(mergeSettings({}).drawCount).toBe(1)
+      expect(mergeSettings({}).multiWinnerReveal).toBe('simultaneous')
+      expect(mergeSettings({ drawCount: 7 }).drawCount).toBe(7)
+      expect(mergeSettings({ drawCount: 'junk' }).drawCount).toBe(1)
+      expect(mergeSettings({ drawCount: 50 }).drawCount).toBe(20)
+      expect(mergeSettings({ multiWinnerReveal: 'sequential' }).multiWinnerReveal).toBe('sequential')
+      expect(mergeSettings({ multiWinnerReveal: 'nope' }).multiWinnerReveal).toBe('simultaneous')
+    })
+
+    it('resetSettings restores the multi-winner defaults', () => {
+      const settings = useSettingsStore()
+      settings.setDrawCount(5)
+      settings.setMultiWinnerReveal('sequential')
+      settings.resetSettings()
+      expect(settings.drawCount).toBe(1)
+      expect(settings.multiWinnerReveal).toBe('simultaneous')
     })
   })
 })

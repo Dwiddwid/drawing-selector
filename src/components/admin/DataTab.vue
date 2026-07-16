@@ -167,6 +167,9 @@ function exportState() {
     theme: settings.theme,
     winnerDisplay: settings.winnerDisplay,
     animationStyle: settings.animationStyle,
+    drawTiming: settings.drawTiming,
+    drawCount: settings.drawCount,
+    multiWinnerReveal: settings.multiWinnerReveal,
     celebration: settings.celebration,
     spinner: settings.spinner,
     participantList: settings.participantList,
@@ -188,6 +191,9 @@ function importStateFile() {
         settings.updateTheme(merged.theme)
         settings.updateWinnerDisplay(merged.winnerDisplay)
         settings.setAnimationStyle(merged.animationStyle)
+        settings.updateDrawTiming(merged.drawTiming)
+        settings.setDrawCount(merged.drawCount)
+        settings.setMultiWinnerReveal(merged.multiWinnerReveal)
         settings.updateCelebration(merged.celebration)
         settings.updateSpinner(merged.spinner)
         settings.updateParticipantList(merged.participantList)

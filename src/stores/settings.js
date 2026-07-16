@@ -5,6 +5,17 @@ import { DRAW_TIMING_MODES, clampDrawMs } from '../utils/drawTiming.js'
 
 const SETTINGS_KEY = 'settings'
 
+// Winners revealed per draw trigger. Capped so a fat-fingered count can't lock
+// the projector into a marathon of spins.
+export const MAX_DRAW_COUNT = 20
+export const MULTI_WINNER_REVEALS = ['simultaneous', 'sequential']
+
+export function clampDrawCount(value, fallback = 1) {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < 1) return fallback
+  return Math.min(MAX_DRAW_COUNT, n)
+}
+
 // Default look mirrors the original "ocean" palette so existing installs are
 // visually unchanged until the user customizes anything.
 export function defaultSettings() {
@@ -60,6 +71,14 @@ export function defaultSettings() {
       minMs: 3000,
       maxMs: 8000,
     },
+    // Winners per draw trigger (1 = the classic single draw).
+    drawCount: 1,
+    // How a multi-winner draw is revealed:
+    //   'simultaneous' — several spinners run side by side when the animation
+    //     style supports it (classic, standard wheel); otherwise falls back to
+    //     sequential automatically (giant wheel/reel are full-viewport).
+    //   'sequential' — always one spin at a time, roster at the end.
+    multiWinnerReveal: 'simultaneous',
     // Post-reveal celebration. Both are opt-out so existing installs keep the
     // bigger-feeling default presentation.
     celebration: {
@@ -174,6 +193,10 @@ export function mergeSettings(stored) {
       ? stored.animationStyle
       : base.animationStyle,
     drawTiming,
+    drawCount: clampDrawCount(stored.drawCount, base.drawCount),
+    multiWinnerReveal: MULTI_WINNER_REVEALS.includes(stored.multiWinnerReveal)
+      ? stored.multiWinnerReveal
+      : base.multiWinnerReveal,
     celebration: { ...base.celebration, ...(stored.celebration || {}) },
     spinner,
     participantList: (() => {
@@ -200,6 +223,8 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.winnerDisplay = merged.winnerDisplay
       this.animationStyle = merged.animationStyle
       this.drawTiming = merged.drawTiming
+      this.drawCount = merged.drawCount
+      this.multiWinnerReveal = merged.multiWinnerReveal
       this.celebration = merged.celebration
       this.spinner = merged.spinner
       this.participantList = merged.participantList
@@ -214,6 +239,8 @@ export const useSettingsStore = defineStore('settingsStore', {
             winnerDisplay: this.winnerDisplay,
             animationStyle: this.animationStyle,
             drawTiming: this.drawTiming,
+            drawCount: this.drawCount,
+            multiWinnerReveal: this.multiWinnerReveal,
             celebration: this.celebration,
             spinner: this.spinner,
             participantList: this.participantList,
@@ -237,6 +264,16 @@ export const useSettingsStore = defineStore('settingsStore', {
       next.minMs = clampDrawMs(next.minMs, this.drawTiming.minMs)
       next.maxMs = clampDrawMs(next.maxMs, this.drawTiming.maxMs)
       this.drawTiming = next
+      this.persist()
+    },
+    setDrawCount(value) {
+      this.drawCount = clampDrawCount(value, this.drawCount)
+      this.persist()
+    },
+    setMultiWinnerReveal(mode) {
+      this.multiWinnerReveal = MULTI_WINNER_REVEALS.includes(mode)
+        ? mode
+        : this.multiWinnerReveal
       this.persist()
     },
     updateCelebration(partial) {
@@ -323,6 +360,8 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.winnerDisplay = fresh.winnerDisplay
       this.animationStyle = fresh.animationStyle
       this.drawTiming = fresh.drawTiming
+      this.drawCount = fresh.drawCount
+      this.multiWinnerReveal = fresh.multiWinnerReveal
       this.celebration = fresh.celebration
       this.spinner = fresh.spinner
       this.participantList = fresh.participantList
