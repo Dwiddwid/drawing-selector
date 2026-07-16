@@ -2,9 +2,11 @@
 import { RouterView } from 'vue-router'
 import { useTheme } from 'vuetify'
 import { useParticipantStore } from './stores/participants.js'
-import { useSettingsStore } from './stores/settings.js'
+import { useSettingsStore, clampLogoHeight } from './stores/settings.js'
 import { useStoreSync } from './composables/useStoreSync.js'
-import { onMounted, watch } from 'vue'
+import { darken, lighten } from './utils/color.js'
+import { fontStack, ensureFontLoaded } from './utils/fonts.js'
+import { computed, onMounted, watch } from 'vue'
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
@@ -13,27 +15,46 @@ const theme = useTheme()
 // Live multi-display sync: reload stores when another tab persists a change.
 useStoreSync()
 
+const themeName = computed(() =>
+  settings.theme.mode === 'dark' ? 'customThemeDark' : 'customTheme',
+)
+
 // Push the user's theme settings into Vuetify's live theme colors and into
 // CSS variables consumed by the global styles / drawing screen.
 function applyTheme(t) {
-  const colors = theme.themes.value.customTheme.colors
-  colors.primary = t.primary
-  colors.secondary = t.secondary
-  colors.accent = t.accent
-  colors.background = t.background
-  colors.surface = t.surface
+  const dark = t.mode === 'dark'
+  // Dark mode darkens the user's background/surface rather than replacing
+  // them, so presets and custom palettes keep their hue identity. Explicit
+  // color overrides below still win untouched.
+  const background = dark ? darken(t.background, 0.75) : t.background
+  const surface = dark ? darken(t.surface, 0.82) : t.surface
+  for (const name of ['customTheme', 'customThemeDark']) {
+    const colors = theme.themes.value[name]?.colors
+    if (!colors) continue
+    colors.primary = t.primary
+    colors.secondary = t.secondary
+    colors.accent = t.accent
+    colors.background = background
+    colors.surface = surface
+  }
 
   const root = document.documentElement
-  root.style.setProperty('--app-font', t.fontFamily)
+  root.style.setProperty('--app-font', fontStack(t.fontFamily))
+  // Fetch the webfont when it's a Google-hosted family (no-op offline/portable).
+  ensureFontLoaded(t.fontFamily)
   root.style.setProperty('--app-primary', t.primary)
   root.style.setProperty('--app-accent', t.accent)
-  root.style.setProperty('--app-background', t.background)
-  root.style.setProperty('--app-surface', t.surface)
-  // Optional overrides — null falls back to the palette-derived defaults.
-  root.style.setProperty('--app-text', t.textColor || t.primary)
-  root.style.setProperty('--app-headline', t.headlineColor || t.primary)
-  root.style.setProperty('--app-winner-card-bg', t.winnerCardBg || t.surface)
-  root.style.setProperty('--app-winner-card-text', t.winnerCardText || t.primary)
+  root.style.setProperty('--app-background', background)
+  root.style.setProperty('--app-surface', surface)
+  // Optional overrides — null falls back to the palette-derived defaults
+  // (lightened in dark mode so derived text stays readable on dark surfaces).
+  const derivedText = dark ? lighten(t.primary, 0.45) : t.primary
+  root.style.setProperty('--app-text', t.textColor || derivedText)
+  root.style.setProperty('--app-headline', t.headlineColor || derivedText)
+  root.style.setProperty('--app-winner-card-bg', t.winnerCardBg || surface)
+  root.style.setProperty('--app-winner-card-text', t.winnerCardText || derivedText)
+  root.style.setProperty('--app-logo-height', `${clampLogoHeight(t.logoHeightVh)}vh`)
+  document.body.classList.toggle('app-dark', dark)
 
   if (t.backgroundStyle === 'image' && t.backgroundImage) {
     // Strip quotes and backslashes so a malformed data URL from a restored JSON
@@ -69,7 +90,7 @@ watch(
 </script>
 
 <template>
-  <v-app theme="customTheme"> <RouterView /></v-app>
+  <v-app :theme="themeName"> <RouterView /></v-app>
 </template>
 
 <style>

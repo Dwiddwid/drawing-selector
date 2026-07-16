@@ -5,7 +5,7 @@ import { useSettingsStore, clampDrawCount } from '../stores/settings.js'
 import { formatWinnerName, visibleWinnerFields } from '../utils/winnerDisplay.js'
 import { onChannelMessage } from '../utils/sync.js'
 import { resolveDrawDuration } from '../utils/drawTiming.js'
-import { celebrate } from '../utils/celebration.js'
+import { celebrate, resolveCelebration } from '../utils/celebration.js'
 import { buildWheelSegments, wheelColorsFromTheme } from '../utils/wheel.js'
 import WheelSpinner from '../components/WheelSpinner.vue'
 import PriceIsRightWheel from '../components/PriceIsRightWheel.vue'
@@ -391,13 +391,14 @@ function prefersReducedMotion() {
 }
 // Fired explicitly by the batch orchestrator on each reveal (every draw path
 // goes through startDraw). Intermediate reveals in a sequential batch get a
-// smaller burst; the final reveal gets the full celebration.
+// half-size burst; the final reveal gets the full celebration. Colors,
+// intensity and sound style come from the celebration settings.
 function celebrateReveal(isFinal) {
-  const confettiOn = settings.celebration.confetti && !prefersReducedMotion()
-  celebrate({
-    confetti: confettiOn ? { particleCount: isFinal ? 160 : 80 } : false,
-    sound: settings.celebration.sound,
+  const resolved = resolveCelebration(settings.celebration, settings.theme, {
+    scale: isFinal ? 1 : 0.5,
   })
+  if (prefersReducedMotion()) resolved.confetti = false
+  celebrate(resolved)
 }
 </script>
 
@@ -455,11 +456,17 @@ function celebrateReveal(isFinal) {
             <h1 v-if="titleEnabled && introVisible" class="event-title giant-text">
               {{ settings.theme.eventTitle }}
             </h1>
-            <h1 v-if="store.spinning" class="font-weight-thin giant-text giant-headline">
-              And the Winner Is...
+            <h1
+              v-if="store.spinning && settings.screenText.spinTitle"
+              class="font-weight-thin giant-text giant-headline"
+            >
+              {{ settings.screenText.spinTitle }}
             </h1>
-            <h1 v-else-if="!store.selected" class="font-weight-thin giant-text giant-headline">
-              Ready to start drawing!
+            <h1
+              v-else-if="!store.spinning && !store.selected && settings.screenText.idleTitle"
+              class="font-weight-thin giant-text giant-headline"
+            >
+              {{ settings.screenText.idleTitle }}
             </h1>
             <div v-if="batchProgressText" class="giant-text batch-progress">
               {{ batchProgressText }}
@@ -470,6 +477,7 @@ function celebrateReveal(isFinal) {
             <WinnerRoster
               v-if="showRoster && !wheelActive"
               :names="rosterNames"
+              :title="settings.screenText.rosterTitle"
               :note="shortfallNote"
               class="winner-overlay"
             />
@@ -497,7 +505,7 @@ function celebrateReveal(isFinal) {
             class="giant-go go-btn"
             @click="startDraw(settings.drawCount)"
           >
-            GO!
+            {{ settings.screenText.goButton || 'GO!' }}
           </v-btn>
 
           <div
@@ -512,8 +520,8 @@ function celebrateReveal(isFinal) {
       <!-- Simultaneous multi-winner reveal: one spinner pane per winner, side
            by side. Used by the classic and standard-wheel styles only. -->
       <template v-else-if="simulActive">
-        <h1 class="display-3 font-weight-thin mb-4 event-title">
-          And the Winner Is...
+        <h1 v-if="settings.screenText.spinTitle" class="display-3 font-weight-thin mb-4 event-title">
+          {{ settings.screenText.spinTitle }}
         </h1>
         <div class="simul-grid">
           <template v-for="pane in simulPanes" :key="pane.id">
@@ -545,11 +553,17 @@ function celebrateReveal(isFinal) {
       <!-- Standard spinning wheel: centered, with the winner card overlaying
            the wheel's center once it stops. -->
       <template v-else-if="isWheel">
-        <h1 v-if="store.spinning" class="display-3 font-weight-thin mb-4 event-title">
-          And the Winner Is...
+        <h1
+          v-if="store.spinning && settings.screenText.spinTitle"
+          class="display-3 font-weight-thin mb-4 event-title"
+        >
+          {{ settings.screenText.spinTitle }}
         </h1>
-        <h1 v-else-if="!store.selected" class="display-3 font-weight-thin mb-4 event-title">
-          Ready to start drawing!
+        <h1
+          v-else-if="!store.spinning && !store.selected && settings.screenText.idleTitle"
+          class="display-3 font-weight-thin mb-4 event-title"
+        >
+          {{ settings.screenText.idleTitle }}
         </h1>
         <div v-if="batchProgressText" class="text-medium-emphasis mb-2 batch-progress">
           {{ batchProgressText }}
@@ -575,6 +589,7 @@ function celebrateReveal(isFinal) {
             <WinnerRoster
               v-if="showRoster && !wheelActive"
               :names="rosterNames"
+              :title="settings.screenText.rosterTitle"
               :note="shortfallNote"
               :class="wheelSegments.length ? 'winner-overlay' : ''"
             />
@@ -608,7 +623,7 @@ function celebrateReveal(isFinal) {
           class="mt-6 go-btn"
           @click="startDraw(settings.drawCount)"
         >
-          GO!
+          {{ settings.screenText.goButton || 'GO!' }}
         </v-btn>
 
         <div
@@ -627,9 +642,14 @@ function celebrateReveal(isFinal) {
         elevation="8"
       >
         <v-card-title>
-          <h1 v-if="store.spinning" class="display-3 font-weight-thin">And the Winner Is...</h1>
-          <h1 v-else-if="!store.selected" class="display-3 font-weight-thin">
-            Ready to start drawing!
+          <h1 v-if="store.spinning && settings.screenText.spinTitle" class="display-3 font-weight-thin">
+            {{ settings.screenText.spinTitle }}
+          </h1>
+          <h1
+            v-else-if="!store.spinning && !store.selected && settings.screenText.idleTitle"
+            class="display-3 font-weight-thin"
+          >
+            {{ settings.screenText.idleTitle }}
           </h1>
           <div v-if="batchProgressText" class="text-medium-emphasis batch-progress">
             {{ batchProgressText }}
@@ -646,6 +666,9 @@ function celebrateReveal(isFinal) {
               <h2 class="card-name">{{ spinName }}</h2>
             </div>
             <div v-else-if="showRoster">
+              <h2 v-if="settings.screenText.rosterTitle" class="roster-heading mb-2">
+                {{ settings.screenText.rosterTitle }}
+              </h2>
               <div class="roster-grid">
                 <div v-for="(name, i) in rosterNames" :key="i" class="roster-name">
                   {{ name }}
@@ -672,7 +695,7 @@ function celebrateReveal(isFinal) {
             variant="elevated"
             color="primary"
             @click="startDraw(settings.drawCount)"
-            >GO!</v-btn
+            >{{ settings.screenText.goButton || 'GO!' }}</v-btn
           >
           <div
             v-if="startHint && !store.spinning"
@@ -880,6 +903,10 @@ button {
   font-size: clamp(1.4rem, 5vmin, 3.5rem);
   line-height: 1.15;
   overflow-wrap: anywhere;
+}
+.roster-heading {
+  font-size: clamp(1.25rem, 4vmin, 2.5rem);
+  line-height: 1.15;
 }
 
 .batch-progress {

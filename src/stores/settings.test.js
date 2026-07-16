@@ -169,7 +169,7 @@ describe('settings store', () => {
     settings.resetSettings()
     expect(settings.theme.primary).toBe('#1e3d59')
     expect(settings.animationStyle).toBe('classic')
-    expect(settings.celebration).toEqual({ confetti: true, sound: true })
+    expect(settings.celebration).toMatchObject({ confetti: true, sound: true })
     expect(localStorage.getItem('settings')).toBe(null)
   })
 
@@ -279,7 +279,7 @@ describe('settings store', () => {
     it('defaults to the classic style with confetti and sound enabled', () => {
       const settings = useSettingsStore()
       expect(settings.animationStyle).toBe('classic')
-      expect(settings.celebration).toEqual({ confetti: true, sound: true })
+      expect(settings.celebration).toMatchObject({ confetti: true, sound: true })
     })
 
     it('setAnimationStyle accepts known styles and persists', () => {
@@ -315,7 +315,7 @@ describe('settings store', () => {
         celebration: { sound: false },
       })
       expect(merged.animationStyle).toBe('reel')
-      expect(merged.celebration).toEqual({ confetti: true, sound: false })
+      expect(merged.celebration).toMatchObject({ confetti: true, sound: false })
     })
 
     it('mergeSettings rejects an unknown animation style', () => {
@@ -416,6 +416,65 @@ describe('settings store', () => {
       settings.resetSettings()
       expect(settings.drawCount).toBe(1)
       expect(settings.multiWinnerReveal).toBe('simultaneous')
+    })
+  })
+
+  describe('celebration styling & screen text', () => {
+    it('old { confetti, sound } blobs keep their booleans and gain style defaults', () => {
+      const merged = mergeSettings({ celebration: { confetti: false, sound: true } })
+      expect(merged.celebration.confetti).toBe(false)
+      expect(merged.celebration.sound).toBe(true)
+      expect(merged.celebration.confettiColorMode).toBe('classic')
+      expect(merged.celebration.intensity).toBe('medium')
+      expect(merged.celebration.soundStyle).toBe('chime')
+      expect(merged.celebration.confettiCustomColors.length).toBeGreaterThan(0)
+    })
+
+    it('rejects invalid celebration enums and empty custom palettes', () => {
+      const merged = mergeSettings({
+        celebration: {
+          confettiColorMode: 'nope',
+          intensity: 'extreme',
+          soundStyle: 'airhorn',
+          confettiCustomColors: [],
+        },
+      })
+      expect(merged.celebration.confettiColorMode).toBe('classic')
+      expect(merged.celebration.intensity).toBe('medium')
+      expect(merged.celebration.soundStyle).toBe('chime')
+      expect(merged.celebration.confettiCustomColors.length).toBeGreaterThan(0)
+    })
+
+    it('screenText merges per key, allows empty strings, resets non-strings', () => {
+      const merged = mergeSettings({
+        screenText: { spinTitle: 'Wer gewinnt?', idleTitle: '', goButton: 42 },
+      })
+      expect(merged.screenText.spinTitle).toBe('Wer gewinnt?')
+      expect(merged.screenText.idleTitle).toBe('') // deliberate hide
+      expect(merged.screenText.goButton).toBe('GO!')
+      expect(merged.screenText.rosterTitle).toBe('Our winners!')
+    })
+
+    it('screenText fills defaults for older blobs and round-trips', () => {
+      expect(mergeSettings({}).screenText.idleTitle).toBe('Ready to start drawing!')
+
+      const settings = useSettingsStore()
+      settings.updateScreenText({ spinTitle: 'Drum roll…' })
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.screenText.spinTitle).toBe('Drum roll…')
+      expect(reloaded.screenText.goButton).toBe('GO!')
+    })
+
+    it('clamps logoHeightVh into [8, 45] and validates theme.mode', () => {
+      expect(mergeSettings({ theme: { logoHeightVh: 100 } }).theme.logoHeightVh).toBe(45)
+      expect(mergeSettings({ theme: { logoHeightVh: 2 } }).theme.logoHeightVh).toBe(8)
+      expect(mergeSettings({ theme: { logoHeightVh: 'big' } }).theme.logoHeightVh).toBe(20)
+      expect(mergeSettings({}).theme.logoHeightVh).toBe(20)
+      expect(mergeSettings({ theme: { mode: 'dark' } }).theme.mode).toBe('dark')
+      expect(mergeSettings({ theme: { mode: 'sepia' } }).theme.mode).toBe('light')
+      expect(mergeSettings({}).theme.mode).toBe('light')
     })
   })
 })

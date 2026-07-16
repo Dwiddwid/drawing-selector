@@ -4,13 +4,45 @@
 // Both are no-op-safe: they bail out cleanly when their underlying browser API
 // isn't available (e.g. jsdom in tests, the page is hidden, autoplay blocked).
 
+import { lighten } from './color.js'
+
 const CANVAS_ID = 'celebration-canvas'
-const DEFAULT_COLORS = ['#ff6f61', '#1c8c9a', '#1e3d59', '#ffcf48', '#7ed957', '#e0f7fa']
+export const DEFAULT_CONFETTI_COLORS = ['#ff6f61', '#1c8c9a', '#1e3d59', '#ffcf48', '#7ed957', '#e0f7fa']
+
+// Confetti palette derived from the event theme: the three brand colors plus
+// lightened variants for visual depth.
+export function confettiColorsFromTheme(theme) {
+  const { primary, secondary, accent } = theme || {}
+  const colors = [primary, secondary, accent].filter(Boolean)
+  if (colors.length === 0) return [...DEFAULT_CONFETTI_COLORS]
+  return [...colors, ...colors.map((c) => lighten(c, 0.2))]
+}
+
+export const INTENSITY_PARTICLES = { low: 80, medium: 160, high: 320 }
+
+// Resolve celebration settings (+ theme) into the concrete options `celebrate`
+// consumes: { confetti: { colors, particleCount } | false, sound: { style } |
+// false }. Pure so it's testable without a DOM; `scale` shrinks intermediate
+// reveals in a multi-winner batch.
+export function resolveCelebration(celebration, theme, { scale = 1 } = {}) {
+  const c = celebration || {}
+  const colors =
+    c.confettiColorMode === 'theme'
+      ? confettiColorsFromTheme(theme)
+      : c.confettiColorMode === 'custom' && c.confettiCustomColors?.length
+        ? [...c.confettiCustomColors]
+        : [...DEFAULT_CONFETTI_COLORS]
+  const particleCount = Math.round((INTENSITY_PARTICLES[c.intensity] ?? INTENSITY_PARTICLES.medium) * scale)
+  return {
+    confetti: c.confetti ? { colors, particleCount } : false,
+    sound: c.sound ? { style: c.soundStyle } : false,
+  }
+}
 
 export function fireConfetti({
   particleCount = 160,
   durationMs = 2400,
-  colors = DEFAULT_COLORS,
+  colors = DEFAULT_CONFETTI_COLORS,
 } = {}) {
   if (typeof document === 'undefined' || typeof window === 'undefined') return false
   // Reuse a single canvas across calls so rapid retriggers don't pile up DOM.
@@ -81,8 +113,42 @@ export function fireConfetti({
   return true
 }
 
-// Short major-chord arpeggio. Web Audio is enough — no asset to bundle.
-export function playWinnerSound({ AudioContextCtor } = {}) {
+// Win-sound patterns, each a short Web-Audio note list — no asset to bundle.
+// { freq, at, dur } per note plus a per-pattern oscillator type and gain.
+//   chime   — the original C5-E5-G5-C6 major arpeggio (triangle).
+//   fanfare — brassy G4→C5→E5 with a held C6 top note (sawtooth).
+//   tada    — two-note C5→C6 leap with a long ringing decay (triangle).
+const SOUND_PATTERNS = {
+  chime: {
+    type: 'triangle',
+    gain: 0.25,
+    notes: [523.25, 659.25, 783.99, 1046.5].map((freq, i) => ({
+      freq,
+      at: i * 0.18 * 0.7,
+      dur: 0.18,
+    })),
+  },
+  fanfare: {
+    type: 'sawtooth',
+    gain: 0.15,
+    notes: [
+      { freq: 392.0, at: 0, dur: 0.16 },
+      { freq: 523.25, at: 0.14, dur: 0.16 },
+      { freq: 659.25, at: 0.28, dur: 0.16 },
+      { freq: 1046.5, at: 0.42, dur: 0.5 },
+    ],
+  },
+  tada: {
+    type: 'triangle',
+    gain: 0.28,
+    notes: [
+      { freq: 523.25, at: 0, dur: 0.14 },
+      { freq: 1046.5, at: 0.16, dur: 0.7 },
+    ],
+  },
+}
+
+export function playWinnerSound({ style = 'chime', AudioContextCtor } = {}) {
   if (typeof window === 'undefined') return false
   const Ctor = AudioContextCtor || window.AudioContext || window.webkitAudioContext
   if (!Ctor) return false
@@ -92,29 +158,29 @@ export function playWinnerSound({ AudioContextCtor } = {}) {
   } catch {
     return false
   }
-  // C5, E5, G5, C6 — bright and unambiguously "win".
-  const notes = [523.25, 659.25, 783.99, 1046.5]
+  const pattern = SOUND_PATTERNS[style] ?? SOUND_PATTERNS.chime
   const startAt = ctx.currentTime + 0.02
-  const noteDur = 0.18
+  let end = 0
 
-  notes.forEach((freq, i) => {
+  for (const note of pattern.notes) {
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
-    osc.type = 'triangle'
-    osc.frequency.value = freq
-    const t0 = startAt + i * noteDur * 0.7
+    osc.type = pattern.type
+    osc.frequency.value = note.freq
+    const t0 = startAt + note.at
     gain.gain.setValueAtTime(0.0001, t0)
-    gain.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + noteDur)
+    gain.gain.exponentialRampToValueAtTime(pattern.gain, t0 + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + note.dur)
     osc.connect(gain).connect(ctx.destination)
     osc.start(t0)
-    osc.stop(t0 + noteDur + 0.05)
-  })
+    osc.stop(t0 + note.dur + 0.05)
+    end = Math.max(end, note.at + note.dur)
+  }
   // Close the context after the last note so we don't leak. Some browsers
   // complain about close() on already-closed contexts; swallow that.
   setTimeout(() => {
     try { ctx.close() } catch { /* already closed */ }
-  }, (notes.length * noteDur * 0.7 + 0.4) * 1000)
+  }, (end + 0.4) * 1000)
   return true
 }
 

@@ -316,6 +316,7 @@ function exportState() {
     drawCount: settings.drawCount,
     multiWinnerReveal: settings.multiWinnerReveal,
     celebration: settings.celebration,
+    screenText: settings.screenText,
     spinner: settings.spinner,
     participantList: settings.participantList,
   })
@@ -340,6 +341,7 @@ function importStateFile() {
         settings.setDrawCount(merged.drawCount)
         settings.setMultiWinnerReveal(merged.multiWinnerReveal)
         settings.updateCelebration(merged.celebration)
+        settings.updateScreenText(merged.screenText)
         settings.updateSpinner(merged.spinner)
         settings.updateParticipantList(merged.participantList)
       }
