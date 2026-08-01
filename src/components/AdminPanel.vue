@@ -11,12 +11,18 @@ import { useSettingsStore } from '../stores/settings.js'
 const tab = ref('participants')
 
 // Settings saves fail silently in the store when localStorage is full (usually
-// a large logo/background data URL); surface each failure here so the operator
-// learns the change won't survive a reload.
+// a large logo/background data URL); surface it here so the operator learns the
+// change won't survive a reload. Throttled: dragging a slider against a full
+// quota fires one failure per tick, and 30 identical toasts help nobody.
 const settings = useSettingsStore()
+const QUOTA_WARN_INTERVAL_MS = 30000
+let lastQuotaWarnAt = 0
 watch(
   () => settings.persistErrorCount,
   () => {
+    const now = Date.now()
+    if (now - lastQuotaWarnAt < QUOTA_WARN_INTERVAL_MS) return
+    lastQuotaWarnAt = now
     notify(
       'Settings could not be saved — browser storage is full (a large logo or background image is the usual cause). Changes apply this session only.',
       'warning',

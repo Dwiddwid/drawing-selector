@@ -54,6 +54,11 @@ function applyTheme(t) {
   root.style.setProperty('--app-winner-card-bg', t.winnerCardBg || surface)
   root.style.setProperty('--app-winner-card-text', t.winnerCardText || derivedText)
   root.style.setProperty('--app-logo-height', `${clampLogoHeight(t.logoHeightVh)}vh`)
+  // Dark mode dims whatever backdrop is in play — including the animated waves,
+  // whose artwork is a fixed bright-blue SVG that ignores the palette. Without
+  // this the "dark" theme lightens the text over an unchanged bright background,
+  // which is worse than light mode.
+  root.style.setProperty('--app-bg-scrim', dark ? 'rgba(0, 0, 0, 0.55)' : 'transparent')
   document.body.classList.toggle('app-dark', dark)
 
   if (t.backgroundStyle === 'image' && t.backgroundImage) {
@@ -113,6 +118,18 @@ body.app-bg-plain .v-application {
   background-size: cover !important;
   background-position: center !important;
   background-attachment: fixed !important;
+}
+
+/* Dark-mode scrim. The wave background is painted by .v-application itself (with
+   !important), so it can't be recolored — instead this pseudo-element lays a
+   translucent black sheet over it, beneath all app content. Fully transparent
+   in light mode. */
+.v-application::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: var(--app-bg-scrim, transparent);
+  pointer-events: none;
 }
 
 a {

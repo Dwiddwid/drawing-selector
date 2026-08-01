@@ -178,6 +178,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (rafId) cancelAnimationFrame(rafId)
   window.removeEventListener('resize', recomputeViewport)
+  // Unmounting mid-spin still ends the spin: the parent awaits `done` before
+  // it can commit or unwind, so swallowing it here would hang the draw.
+  if (props.active) emit('done')
 })
 watch(
   () => props.active,

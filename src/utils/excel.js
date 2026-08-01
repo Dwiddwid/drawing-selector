@@ -2,9 +2,11 @@
 // tabular shape parseCsv produces, so spreadsheets flow through the standard
 // column-mapping dialog.
 //
-// SheetJS is heavy (~400 KB), so it's loaded lazily on first use — the main
-// bundle doesn't grow, and the portable single-file build excludes it entirely
-// (callers gate on __PORTABLE_BUILD__ before importing this module's parser).
+// SheetJS is heavy (~430 KB), so it's loaded lazily on first use — the main
+// bundle doesn't grow, it's excluded from the service worker's precache (see
+// workbox globIgnores in vite.config.js) so PWA installs don't pay for it, and
+// the portable single-file build drops it entirely (callers gate on
+// __PORTABLE_BUILD__ before importing this module's parser).
 
 // Turn a sheet's array-of-arrays into trimmed string cells.
 const toCell = (v) => {

@@ -17,35 +17,74 @@ export function uid() {
 // straight out of a spreadsheet.
 export const CSV_DELIMITERS = [',', ';', '\t']
 
-// Guess the delimiter by counting candidate characters outside quoted regions
-// across the first few non-empty lines. Highest total wins; comma wins ties
-// (and a single-column file with no delimiter at all).
-export function detectDelimiter(text) {
-  const source = String(text ?? '')
-  const counts = { ',': 0, ';': 0, '\t': 0 }
+// Field counts per line for each candidate delimiter, quote-aware, over the
+// first `maxLines` non-empty lines. A line always has at least one field.
+function delimiterFieldCounts(source, maxLines = 10) {
+  const counts = { ',': [], ';': [], '\t': [] }
+  let current = { ',': 1, ';': 1, '\t': 1 }
   let inQuotes = false
-  let lines = 0
   let lineHadContent = false
-  for (let i = 0; i < source.length && lines < 10; i++) {
+  const endLine = () => {
+    if (lineHadContent) {
+      for (const d of CSV_DELIMITERS) counts[d].push(current[d])
+    }
+    current = { ',': 1, ';': 1, '\t': 1 }
+    lineHadContent = false
+  }
+  for (let i = 0; i < source.length; i++) {
+    if (counts[','].length >= maxLines) break
     const c = source[i]
     if (inQuotes) {
-      if (c === '"') inQuotes = false
+      if (c === '"') {
+        // A doubled "" is an escaped quote, not the end of the quoted field.
+        if (source[i + 1] === '"') i++
+        else inQuotes = false
+      } else if (c.trim() !== '') lineHadContent = true
       continue
     }
-    if (c === '"') inQuotes = true
-    else if (c === '\n' || c === '\r') {
-      if (lineHadContent) lines += 1
-      lineHadContent = false
-      if (c === '\r' && source[i + 1] === '\n') i++
+    if (c === '"') {
+      inQuotes = true
+      lineHadContent = true
+    } else if (c === '\n') {
+      endLine()
+    } else if (c === '\r') {
+      endLine()
+      if (source[i + 1] === '\n') i++
     } else {
       if (c.trim() !== '') lineHadContent = true
-      if (c in counts) counts[c] += 1
+      if (c in current) current[c] += 1
     }
   }
-  // Tie-break order = declaration order: ',' > ';' > '\t'.
+  endLine()
+  return counts
+}
+
+// Guess the delimiter from how *consistently* it splits the sample into
+// columns, not from raw frequency. A candidate only qualifies if it splits the
+// header row into more than one field; it is then scored by the fraction of
+// lines that produce that same field count. Comma wins ties and is the
+// fallback when nothing qualifies.
+//
+// Frequency alone silently destroys data: a one-column "Name" list holding
+// "Lovelace; Ada" has more semicolons than commas, and splitting on them drops
+// every given name. Requiring the header to agree with the body rejects that,
+// while still detecting genuine semicolon/TSV exports.
+export function detectDelimiter(text) {
+  const source = String(text ?? '')
+  const counts = delimiterFieldCounts(source)
   let best = ','
+  let bestScore = 0
   for (const d of CSV_DELIMITERS) {
-    if (counts[d] > counts[best]) best = d
+    const lines = counts[d]
+    const header = lines[0] ?? 1
+    if (header <= 1) continue
+    const agreeing = lines.filter((n) => n === header).length
+    const score = agreeing / lines.length
+    // Strictly greater keeps the declaration order (',' > ';' > '\t') on ties.
+    if (score > bestScore) {
+      best = d
+      bestScore = score
+    }
   }
   return best
 }

@@ -62,7 +62,16 @@ const simulNames = ref([]) // display names the slot panes cycle through
 let simulDoneCount = 0
 let simulResolve = null
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+// Set when the screen unmounts mid-batch. The orchestrator checks it after
+// every await so a navigated-away batch stops instead of continuing to award
+// winners in the background; cancelBatch() also settles whatever the loop is
+// currently awaiting so the async function can unwind.
+let batchCancelled = false
+let holdTimer = 0
+const sleep = (ms) =>
+  new Promise((resolve) => {
+    holdTimer = setTimeout(resolve, ms)
+  })
 
 // This draw's resolved animation length (ms), decided once per draw on the
 // screen that runs the animation. Infinity = 'manual' (free-spin until stopped).
@@ -146,15 +155,19 @@ async function spinOnceWheel(durationMs, targetId = null) {
   await nextTick()
   wheelActive.value = true
   await new Promise((resolve) => { wheelDoneResolver = resolve })
-  return true
+  // Cancelled while the wheel was spinning: the winner was never committed and
+  // the component is going away, so report "no spin" and let the loop unwind.
+  return !batchCancelled
 }
 
 function onWheelDone() {
   wheelActive.value = false
-  if (pendingWinnerIdx.value >= 0) {
+  // A cancelled batch still gets a `done` (the wheel emits one when it
+  // unmounts mid-spin) — settle the awaiting promise but commit nobody.
+  if (pendingWinnerIdx.value >= 0 && !batchCancelled) {
     store.commitAt(pendingWinnerIdx.value)
-    pendingWinnerIdx.value = -1
   }
+  pendingWinnerIdx.value = -1
   wheelDoneResolver?.()
   wheelDoneResolver = null
 }
@@ -213,6 +226,9 @@ async function runSimultaneous(n) {
   await nextTick()
   simulActive.value = true
   await new Promise((resolve) => { simulResolve = resolve })
+  // Cancelled mid-spin: the panes are gone, so commit nothing (cancelBatch has
+  // already cleared `spinning`).
+  if (batchCancelled) return
   // Commit by id — each commit reshuffles candidate indices, ids stay stable.
   for (const id of ids) store.commitWinnerById(id)
   store.endVisualSpin()
@@ -220,6 +236,26 @@ async function runSimultaneous(n) {
   simulPanes.value = []
   batchDrawn.value = ids.length
   celebrateReveal(true)
+}
+
+// Tear down an in-flight batch when the screen goes away. Without this the
+// awaited resolvers never settle (leaving store.spinning stuck true, which
+// blocks every future draw and freezes cross-window sync) and the store's spin
+// timer keeps committing winners nobody is watching.
+function cancelBatch() {
+  batchCancelled = true
+  clearTimeout(holdTimer)
+  store.abortSpin()
+  wheelDoneResolver?.()
+  wheelDoneResolver = null
+  simulResolve?.()
+  simulResolve = null
+  wheelActive.value = false
+  simulActive.value = false
+  pendingWinnerIdx.value = -1
+  store.endVisualSpin()
+  store.endDrawBatch()
+  batchRunning.value = false
 }
 
 // Batch orchestrator — every draw goes through here (a single draw is a batch
@@ -240,6 +276,7 @@ async function startDraw(count = 1, targetId = null) {
   batchDrawn.value = 0
   batchShortfall.value = 0
   manualStopRequested.value = false
+  batchCancelled = false
   store.beginDrawBatch()
   try {
     if (canRunSimultaneous(n, targetId)) {
@@ -247,6 +284,7 @@ async function startDraw(count = 1, targetId = null) {
       return
     }
     for (let i = 0; i < n; i += 1) {
+      if (batchCancelled) return
       manualStopRequested.value = false
       // Decide this spin's length once, here on the screen that runs the
       // animation, so random durations and manual stop are resolved in
@@ -258,6 +296,7 @@ async function startDraw(count = 1, targetId = null) {
       const spun = (isWheel.value || isPriceWheel.value)
         ? await spinOnceWheel(durationMs, targetId)
         : await spinOnceClassic(durationMs, targetId)
+      if (batchCancelled) return
       if (!spun) {
         batchShortfall.value = n - i
         break
@@ -267,6 +306,8 @@ async function startDraw(count = 1, targetId = null) {
       if (i + 1 < n) await sleep(BATCH_REVEAL_HOLD_MS)
     }
   } finally {
+    // cancelBatch() already reset this state (and may have done so while we
+    // were awaiting); doing it twice is harmless.
     store.endDrawBatch()
     batchRunning.value = false
   }
@@ -305,6 +346,8 @@ function onKeydown(e) {
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+// Leaving the drawing screen abandons any in-flight batch (see cancelBatch).
+onBeforeUnmount(cancelBatch)
 
 // Branding (logo + event title) is hidden while a draw is running so it never
 // overlays the spinning wheel; it returns alongside the winner card. During a
@@ -363,12 +406,23 @@ const shortfallNote = computed(() =>
     ? `Pool ran out — drew ${store.lastDrawWinners.length} of ${batchTotal.value} winners.`
     : '',
 )
-// "Winner 2 of 5" while a sequential multi-winner batch is running.
-const batchProgressText = computed(() =>
-  batchRunning.value && batchTotal.value > 1 && !simulActive.value
-    ? `Winner ${Math.min(batchDrawn.value + 1, batchTotal.value)} of ${batchTotal.value}`
-    : '',
+// The roster carries the shortfall note when several winners came out; a batch
+// that managed only one winner shows a plain winner card, so the note needs its
+// own slot or the operator never learns the draw came up short.
+const soloShortfallNote = computed(() =>
+  shortfallNote.value && !showRoster.value && !batchRunning.value ? shortfallNote.value : '',
 )
+// "Winner 2 of 5" while a sequential multi-winner batch is running. While a
+// spin is running this counts the winner being drawn; during the hold after a
+// reveal it names the winner currently on screen (not the next one).
+const batchProgressText = computed(() => {
+  if (!batchRunning.value || batchTotal.value <= 1 || simulActive.value) return ''
+  const isSpinning = store.spinning || wheelActive.value
+  const n = isSpinning
+    ? Math.min(batchDrawn.value + 1, batchTotal.value)
+    : Math.max(batchDrawn.value, 1)
+  return `Winner ${n} of ${batchTotal.value}`
+})
 
 // Text equivalent of the (canvas-based, otherwise silent) reveal for assistive
 // tech, surfaced through a polite aria-live region.
@@ -514,6 +568,9 @@ function celebrateReveal(isFinal) {
           >
             {{ startHint }}
           </div>
+          <div v-else-if="soloShortfallNote" class="giant-empty">
+            {{ soloShortfallNote }}
+          </div>
         </div>
       </template>
 
@@ -632,6 +689,9 @@ function celebrateReveal(isFinal) {
         >
           {{ startHint }}
         </div>
+        <div v-else-if="soloShortfallNote" class="text-medium-emphasis mt-2">
+          {{ soloShortfallNote }}
+        </div>
       </template>
 
       <v-card
@@ -684,6 +744,9 @@ function celebrateReveal(isFinal) {
                 <template v-if="settings.winnerDisplay.showLabels">{{ row.label }}: </template
                 >{{ row.value }}
               </div>
+              <div v-if="soloShortfallNote" class="text-medium-emphasis mt-2">
+                {{ soloShortfallNote }}
+              </div>
             </div>
           </div>
         </v-card-text>
@@ -731,7 +794,8 @@ button {
   width: 100%;
 }
 .event-logo {
-  max-height: 20vh;
+  /* Sized by the "Logo size" setting (App.vue publishes the variable). */
+  max-height: var(--app-logo-height, 20vh);
   max-width: 80vw;
   object-fit: contain;
 }

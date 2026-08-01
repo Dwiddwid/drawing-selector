@@ -58,6 +58,10 @@ export const useParticipantStore = defineStore('participantStore', {
     // Set by requestManualStop() to tell an in-progress 'manual' classic spin to
     // begin decelerating. Reset at the start/end of each spin.
     manualStop: false,
+    // Set by abortSpin() to tear down an in-progress classic spin *without*
+    // committing a winner — used when the drawing screen unmounts mid-draw, so
+    // a navigated-away batch can't keep awarding winners in the background.
+    spinAborted: false,
     useMultiDisplayMode: false,
     filters: [],
     // Snapshots of the most recent reset so the operator can undo an
@@ -206,6 +210,8 @@ export const useParticipantStore = defineStore('participantStore', {
       }
       this.winners = []
       this.selected = null
+      // The last draw's roster refers to winners that no longer exist.
+      this.lastDrawWinners = []
       this.persistCandidates()
       this.persistWinners()
     },
@@ -288,6 +294,8 @@ export const useParticipantStore = defineStore('participantStore', {
       this.winners = winners
       this.index = -1
       this.selected = null
+      this.lastDrawWinners = []
+      this.batchActive = false
       this.filters = []
       this.lastResetCandidates = null
       this.lastResetWinners = null
@@ -344,7 +352,10 @@ export const useParticipantStore = defineStore('participantStore', {
       }
 
       this.selected = winner
-      this.lastDrawWinners.push(winner)
+      // The roster describes *this batch's* draw. Manual admin awards (which
+      // commit outside a batch) must not accumulate into it, or the projector
+      // would show a "winners" roster before anyone has drawn.
+      if (this.batchActive) this.lastDrawWinners.push(winner)
       this.index = -1
       this.persistWinners()
       this.persistCandidates()
@@ -421,6 +432,14 @@ export const useParticipantStore = defineStore('participantStore', {
     requestManualStop() {
       this.manualStop = true
     },
+    // Abandon an in-progress classic spin without picking a winner. The tick
+    // loop notices on its next tick, clears `spinning` and fires `onDone` so
+    // any awaiting batch can unwind. Returns false when nothing was spinning.
+    abortSpin() {
+      if (!this.spinning) return false
+      this.spinAborted = true
+      return true
+    },
     // Shared slot-machine animation loop. Cycles the pointer at the base delay,
     // then decelerates to a stop; once stopped, `resolveWinner()` fixes the final
     // `this.index` (a no-op for a random draw — the last tick already set it) and
@@ -438,6 +457,7 @@ export const useParticipantStore = defineStore('participantStore', {
       this.spinning = true
       this.selected = null
       this.manualStop = false
+      this.spinAborted = false
       // A committed draw renders any prior reset-undo meaningless.
       this.clearResetUndo()
 
@@ -449,6 +469,16 @@ export const useParticipantStore = defineStore('participantStore', {
       let decelerating = false
 
       const tick = () => {
+        // Abandoned (the drawing screen unmounted mid-spin): stop the loop and
+        // leave the pool untouched — no winner is committed.
+        if (this.spinAborted) {
+          this.spinAborted = false
+          this.spinning = false
+          this.manualStop = false
+          this.index = -1
+          onDone?.()
+          return
+        }
         this.pointToRandomCandidate()
         i += 1
         if (!decelerating && (manual ? this.manualStop : i >= fastTicks)) {

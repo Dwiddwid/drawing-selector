@@ -27,12 +27,15 @@ watch(
   },
 )
 
-// Heuristic: a multi-column paste (first line contains the detected delimiter)
-// usually comes with a header row; a plain name list doesn't.
+// Heuristic: a tab-separated paste is a block of spreadsheet cells, which
+// nearly always carries a header row. Everything else defaults to "no header".
+// Deliberately conservative — guessing "header" wrongly *consumes a
+// participant* (a "Lovelace, Ada" list would lose its first person), while
+// guessing "no header" wrongly just shows one obvious junk row in the preview.
 watch(text, (value) => {
   if (headerTouched) return
   const firstLine = String(value).split(/\r\n|\r|\n/, 1)[0] ?? ''
-  hasHeader.value = firstLine.includes(detectDelimiter(value)) && firstLine.trim() !== ''
+  hasHeader.value = firstLine.trim() !== '' && detectDelimiter(value) === '\t'
 })
 
 function onHeaderInput(v) {

@@ -46,6 +46,10 @@ export default defineConfig({
             },
             workbox: {
               globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+              // Keep the lazy SheetJS chunk (~430 KB) out of the precache, or
+              // every install pays for it up front just to *maybe* import an
+              // .xlsx. It's fetched on demand the first time one is chosen.
+              globIgnores: ['**/xlsx-*.js'],
             },
           }),
         ]),

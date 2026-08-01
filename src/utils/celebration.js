@@ -187,9 +187,10 @@ export function playWinnerSound({ style = 'chime', AudioContextCtor } = {}) {
 export function celebrate(options = {}) {
   const { confetti = true, sound = true } = options
   const results = {}
-  // `confetti` / `sound` are booleans in normal use (from settings). Tests may
-  // pass a plain object of sub-options instead — handle both without coercing
-  // a falsy boolean into a call.
+  // `confetti` / `sound` are either `false` or an options object (that's what
+  // resolveCelebration emits); plain booleans are still accepted for callers
+  // that just want the defaults. Handle both without coercing a falsy boolean
+  // into a call.
   if (confetti) results.confetti = fireConfetti(typeof options.confetti === 'object' ? options.confetti : {})
   if (sound) results.sound = playWinnerSound(typeof options.sound === 'object' ? options.sound : {})
   return results

@@ -314,6 +314,25 @@ describe('detectDelimiter', () => {
     expect(detectDelimiter('')).toBe(',')
     expect(detectDelimiter('a,b;c\n1,2;3')).toBe(',')
   })
+
+  // Frequency-only detection silently dropped data here: these one-column
+  // files contain more semicolons/tabs than commas, but splitting on them
+  // would discard half of every value.
+  it('keeps a one-column list intact when its values contain semicolons', () => {
+    expect(detectDelimiter('Name\nLovelace; Ada\nTuring; Alan\n')).toBe(',')
+  })
+
+  it('keeps a comma file on comma when a value contains many semicolons', () => {
+    expect(detectDelimiter('Name,Prefs\nAda,vegan;gluten;nuts\nAlan,veg;dairy;soy\n')).toBe(',')
+  })
+
+  it('keeps a comma file on comma when values contain stray tabs', () => {
+    expect(detectDelimiter('Name,Note\nAda,left\tright\nAlan,up\tdown\n')).toBe(',')
+  })
+
+  it('still detects a semicolon export whose body has one ragged row', () => {
+    expect(detectDelimiter('First;Last\nAda;Lovelace\nAlan\n')).toBe(';')
+  })
 })
 
 describe('parseCsv delimiter & header options', () => {
@@ -360,6 +379,12 @@ describe('parseCsv delimiter & header options', () => {
     expect(clean.raggedRows).toBe(0)
     const ragged = parseCsv('a,b\n1\n1,2,3\n4,5')
     expect(ragged.raggedRows).toBe(2)
+  })
+
+  it('does not split a one-column list whose values contain semicolons', () => {
+    const { headers, rows } = parseCsv('Name\nLovelace; Ada\nTuring; Alan\n')
+    expect(headers).toEqual(['Name'])
+    expect(rows.map((r) => r.Name)).toEqual(['Lovelace; Ada', 'Turing; Alan'])
   })
 
   it('a wrongly-delimited file shows up as one column, not a crash', () => {

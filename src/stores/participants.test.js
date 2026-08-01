@@ -1197,6 +1197,94 @@ describe('participant store', () => {
       })
     })
 
+    it('manual admin awards stay out of the roster (no batch running)', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      // The Participants tab's per-row "make winner" path commits outside a
+      // batch — the projector must not then show a stale winners roster.
+      store.manuallySelectWinner('Ada-Lovelace')
+      store.manuallySelectWinner('Alan-Turing')
+      expect(store.winners).toHaveLength(2)
+      expect(store.lastDrawWinners).toHaveLength(0)
+    })
+
+    it('resetWinners and importState clear the roster', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      store.beginDrawBatch()
+      store.index = 0
+      store.commitSelection()
+      store.index = 0
+      store.commitSelection()
+      store.endDrawBatch()
+      expect(store.lastDrawWinners).toHaveLength(2)
+
+      store.resetWinners('remove')
+      expect(store.lastDrawWinners).toHaveLength(0)
+
+      store.beginDrawBatch()
+      store.candidates = [person('Grace', 'Hopper')]
+      store.index = 0
+      store.commitSelection()
+      store.endDrawBatch()
+      expect(store.lastDrawWinners).toHaveLength(1)
+      store.importState({ candidates: [], winners: [] })
+      expect(store.lastDrawWinners).toHaveLength(0)
+      expect(store.batchActive).toBe(false)
+    })
+
+    describe('abortSpin', () => {
+      it('stops an in-flight classic spin without committing a winner', () => {
+        vi.useFakeTimers()
+        const store = useParticipantStore()
+        store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+        store.beginDrawBatch()
+        let doneFired = false
+        store.selectRandomCandidate('classic', {
+          durationMs: 5000,
+          onDone: () => { doneFired = true },
+        })
+        // Part-way through the spin the operator navigates away.
+        vi.advanceTimersByTime(100)
+        expect(store.spinning).toBe(true)
+        expect(store.abortSpin()).toBe(true)
+        vi.runAllTimers()
+
+        // No winner awarded, pool untouched, and the awaiting batch is released
+        // so it can unwind instead of hanging on a promise that never settles.
+        expect(store.winners).toHaveLength(0)
+        expect(store.candidates).toHaveLength(2)
+        expect(store.lastDrawWinners).toHaveLength(0)
+        expect(store.spinning).toBe(false)
+        expect(store.index).toBe(-1)
+        expect(doneFired).toBe(true)
+        vi.useRealTimers()
+      })
+
+      it('leaves the store drawable after an abort', () => {
+        vi.useFakeTimers()
+        const store = useParticipantStore()
+        store.candidates = [person('Ada', 'Lovelace')]
+        store.selectRandomCandidate('classic', { durationMs: 5000 })
+        vi.advanceTimersByTime(100)
+        store.abortSpin()
+        vi.runAllTimers()
+
+        // The next draw must still be possible — a stuck `spinning` used to
+        // block every future trigger until a full page reload.
+        expect(store.spinning).toBe(false)
+        expect(store.selectRandomCandidate('classic', { durationMs: 1000 })).toBe(true)
+        vi.runAllTimers()
+        expect(store.winners).toHaveLength(1)
+        vi.useRealTimers()
+      })
+
+      it('returns false when nothing is spinning', () => {
+        const store = useParticipantStore()
+        expect(store.abortSpin()).toBe(false)
+      })
+    })
+
     it('endVisualSpin clears spinning without committing', () => {
       const store = useParticipantStore()
       store.candidates = [person('Ada', 'Lovelace')]
