@@ -40,7 +40,9 @@ function applyTheme(t) {
 
   const root = document.documentElement
   root.style.setProperty('--app-font', fontStack(t.fontFamily))
-  // Fetch the webfont when it's a Google-hosted family (no-op offline/portable).
+  // Fetch the webfont when it's a Google-hosted family (no-op for system fonts
+  // and for the portable build). If the request fails — offline, or a blocked
+  // network — the stack's local fallback renders instead.
   ensureFontLoaded(t.fontFamily)
   root.style.setProperty('--app-primary', t.primary)
   root.style.setProperty('--app-accent', t.accent)
