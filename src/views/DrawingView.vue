@@ -1,14 +1,16 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useParticipantStore } from '../stores/participants.js'
-import { useSettingsStore } from '../stores/settings.js'
+import { useSettingsStore, clampDrawCount } from '../stores/settings.js'
 import { formatWinnerName, visibleWinnerFields } from '../utils/winnerDisplay.js'
 import { onChannelMessage } from '../utils/sync.js'
 import { resolveDrawDuration } from '../utils/drawTiming.js'
-import { celebrate } from '../utils/celebration.js'
+import { celebrate, resolveCelebration } from '../utils/celebration.js'
 import { buildWheelSegments, wheelColorsFromTheme } from '../utils/wheel.js'
 import WheelSpinner from '../components/WheelSpinner.vue'
 import PriceIsRightWheel from '../components/PriceIsRightWheel.vue'
+import SlotReveal from '../components/SlotReveal.vue'
+import WinnerRoster from '../components/WinnerRoster.vue'
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
@@ -32,6 +34,44 @@ const wheelActive = ref(false)
 const wheelSegments = ref([])
 const wheelWinnerSegmentIdx = ref(-1)
 const pendingWinnerIdx = ref(-1)
+
+// Multi-winner batch state. Every draw runs through the batch orchestrator —
+// a single draw is just a batch of 1. `batchRunning` is the real reentrancy
+// guard: between sequential spins `store.spinning` is briefly false, so GO /
+// keyboard / channel triggers must gate on this instead.
+const batchRunning = ref(false)
+const batchTotal = ref(1)
+const batchDrawn = ref(0)
+const batchShortfall = ref(0) // > 0 when the pool ran out before batchTotal
+// How long each revealed winner stays up before the next spin starts.
+const BATCH_REVEAL_HOLD_MS = 2500
+// In 'manual' timing, one Stop press ends the current free-spin; the remaining
+// spins in the batch run at this fixed length (the admin's Start/Stop button is
+// a local toggle with no feedback channel, so stop-per-spin would desync it).
+const BATCH_FALLBACK_SPIN_MS = 4500
+
+// Simultaneous reveal: several spinners run side by side, one per winner.
+// Supported for the classic card and the standard wheel; the giant wheel and
+// reel are full-viewport, so they always reveal sequentially. Caps keep the
+// panes legible on a projector.
+const SIMUL_CAPS = { classic: 8, wheel: 4 }
+const simulActive = ref(false)
+const simulPanes = ref([]) // [{ id, kind: 'wheel'|'slot', ... }]
+const simulPaneSize = ref(320)
+const simulNames = ref([]) // display names the slot panes cycle through
+let simulDoneCount = 0
+let simulResolve = null
+
+// Set when the screen unmounts mid-batch. The orchestrator checks it after
+// every await so a navigated-away batch stops instead of continuing to award
+// winners in the background; cancelBatch() also settles whatever the loop is
+// currently awaiting so the async function can unwind.
+let batchCancelled = false
+let holdTimer = 0
+const sleep = (ms) =>
+  new Promise((resolve) => {
+    holdTimer = setTimeout(resolve, ms)
+  })
 
 // This draw's resolved animation length (ms), decided once per draw on the
 // screen that runs the animation. Infinity = 'manual' (free-spin until stopped).
@@ -72,7 +112,157 @@ const startHint = computed(() => {
   return canDraw.value ? '' : emptyMessage.value
 })
 
-function startDraw(targetId = null) {
+const participantLabel = (c) => formatWinnerName(c, settings.winnerDisplay) || '(no name)'
+
+// One classic (slot-machine) spin through the store's shared animation loop.
+// Resolves true once the winner is committed; false when the spin can't start
+// (empty/exhausted pool).
+function spinOnceClassic(durationMs, targetId = null) {
+  return new Promise((resolve) => {
+    const opts = { durationMs, onDone: () => resolve(true) }
+    const ok = targetId
+      ? store.selectSpecificCandidate(targetId, settings.animationStyle, opts)
+      : store.selectRandomCandidate(settings.animationStyle, opts)
+    if (!ok) resolve(false)
+  })
+}
+
+// One wheel/reel spin via the honest pre-pick flow. Segments are rebuilt from
+// the *current* pool every time — each commit reshuffles `candidates`, so a
+// batch's later spins must not reuse the previous spin's segments.
+let wheelDoneResolver = null
+async function spinOnceWheel(durationMs, targetId = null) {
+  if (!store.beginVisualSpin()) return false
+  const idx = targetId
+    ? store.candidates.findIndex((c) => c.id === targetId)
+    : store.pickWinnerIndex()
+  if (idx < 0) {
+    // Pool emptied between the check and the pick — bail cleanly.
+    store.commitAt(-1)
+    return false
+  }
+  pendingWinnerIdx.value = idx
+  // The giant wheel shows every candidate (names scroll past), so don't cap
+  // the segment count; the standard wheel keeps the default cap.
+  const opts = isGiantWheel.value
+    ? { max: store.candidates.length, label: participantLabel }
+    : { label: participantLabel }
+  const { segments, winnerSegmentIdx } = buildWheelSegments(store.candidates, idx, opts)
+  wheelSegments.value = segments
+  wheelWinnerSegmentIdx.value = winnerSegmentIdx
+  // Let the component rebuild its wheel bitmap from the new segments before
+  // the spin starts, or a batch's later spins animate the stale wheel.
+  await nextTick()
+  wheelActive.value = true
+  await new Promise((resolve) => { wheelDoneResolver = resolve })
+  // Cancelled while the wheel was spinning: the winner was never committed and
+  // the component is going away, so report "no spin" and let the loop unwind.
+  return !batchCancelled
+}
+
+function onWheelDone() {
+  wheelActive.value = false
+  // A cancelled batch still gets a `done` (the wheel emits one when it
+  // unmounts mid-spin) — settle the awaiting promise but commit nobody.
+  if (pendingWinnerIdx.value >= 0 && !batchCancelled) {
+    store.commitAt(pendingWinnerIdx.value)
+  }
+  pendingWinnerIdx.value = -1
+  wheelDoneResolver?.()
+  wheelDoneResolver = null
+}
+
+// Whether a batch of `n` can reveal all winners at once (side-by-side panes).
+function canRunSimultaneous(n, targetId) {
+  if (n <= 1 || targetId) return false
+  if (settings.multiWinnerReveal !== 'simultaneous') return false
+  const cap = SIMUL_CAPS[settings.animationStyle]
+  return Boolean(cap) && n <= cap
+}
+
+function onPaneDone() {
+  simulDoneCount += 1
+  if (simulDoneCount >= simulPanes.value.length) {
+    simulResolve?.()
+    simulResolve = null
+  }
+}
+
+// Simultaneous reveal: pre-pick all (distinct) winners, run one pane per
+// winner, and commit them together when the last pane settles. Slightly
+// jittered durations keep the panes from stopping in eerie lockstep.
+async function runSimultaneous(n) {
+  const ids = store.pickWinnerIds(n)
+  if (ids.length === 0) {
+    batchShortfall.value = n
+    return
+  }
+  batchShortfall.value = n - ids.length
+  if (!store.beginVisualSpin()) return
+  const durationMs = resolveDrawDuration(settings.drawTiming)
+  drawDurationMs.value = durationMs
+  const jitter = (ms) =>
+    Number.isFinite(ms) ? Math.round(ms * (0.95 + Math.random() * 0.1)) : ms
+  const isWheelStyle = settings.animationStyle === 'wheel'
+  if (isWheelStyle) {
+    const cols = ids.length <= 2 ? ids.length : Math.ceil(ids.length / 2)
+    const available = Math.floor((window.innerWidth - 32) / cols) - 24
+    simulPaneSize.value = Math.max(220, Math.min(settings.spinner.size, available))
+  }
+  // Slot panes cycle through the pre-draw pool's names (all panes share it).
+  simulNames.value = store.drawableCandidates.map(participantLabel)
+  simulPanes.value = ids.map((id) => {
+    if (isWheelStyle) {
+      const idx = store.candidates.findIndex((c) => c.id === id)
+      const { segments, winnerSegmentIdx } = buildWheelSegments(store.candidates, idx, {
+        label: participantLabel,
+      })
+      return { id, kind: 'wheel', segments, winnerSegmentIdx, durationMs: jitter(durationMs) }
+    }
+    const winner = store.candidates.find((c) => c.id === id)
+    return { id, kind: 'slot', winnerName: participantLabel(winner), durationMs: jitter(durationMs) }
+  })
+  simulDoneCount = 0
+  await nextTick()
+  simulActive.value = true
+  await new Promise((resolve) => { simulResolve = resolve })
+  // Cancelled mid-spin: the panes are gone, so commit nothing (cancelBatch has
+  // already cleared `spinning`).
+  if (batchCancelled) return
+  // Commit by id — each commit reshuffles candidate indices, ids stay stable.
+  for (const id of ids) store.commitWinnerById(id)
+  store.endVisualSpin()
+  simulActive.value = false
+  simulPanes.value = []
+  batchDrawn.value = ids.length
+  celebrateReveal(true)
+}
+
+// Tear down an in-flight batch when the screen goes away. Without this the
+// awaited resolvers never settle (leaving store.spinning stuck true, which
+// blocks every future draw and freezes cross-window sync) and the store's spin
+// timer keeps committing winners nobody is watching.
+function cancelBatch() {
+  batchCancelled = true
+  clearTimeout(holdTimer)
+  store.abortSpin()
+  wheelDoneResolver?.()
+  wheelDoneResolver = null
+  simulResolve?.()
+  simulResolve = null
+  wheelActive.value = false
+  simulActive.value = false
+  pendingWinnerIdx.value = -1
+  store.endVisualSpin()
+  store.endDrawBatch()
+  batchRunning.value = false
+}
+
+// Batch orchestrator — every draw goes through here (a single draw is a batch
+// of 1). Sequential mode runs the spins back to back with a hold between
+// reveals; simultaneous mode delegates to runSimultaneous().
+async function startDraw(count = 1, targetId = null) {
+  if (batchRunning.value || store.spinning || wheelActive.value) return
   // A single-window manual draw has no way to be stopped (Stop is admin-only),
   // so refuse to start one. In multi-display this is false (the admin drives it).
   if (manualNeedsAdmin.value) return
@@ -80,43 +270,46 @@ function startDraw(targetId = null) {
   // honors the admin's current Draw Filter selection. In single-window mode
   // the store is already up-to-date, so this is a cheap no-op in that case.
   store.loadFilters()
-  // Decide this draw's length once, here on the screen that runs the animation,
-  // so random durations and manual stop are resolved in exactly one place.
+  const n = targetId ? 1 : clampDrawCount(count)
+  batchRunning.value = true
+  batchTotal.value = n
+  batchDrawn.value = 0
+  batchShortfall.value = 0
   manualStopRequested.value = false
-  const durationMs = resolveDrawDuration(settings.drawTiming)
-  drawDurationMs.value = durationMs
-  if (isWheel.value || isPriceWheel.value) {
-    if (!store.beginVisualSpin()) return
-    const idx = targetId
-      ? store.candidates.findIndex((c) => c.id === targetId)
-      : store.pickWinnerIndex()
-    if (idx < 0) {
-      // Pool emptied between the check and the pick — bail cleanly.
-      store.commitAt(-1)
+  batchCancelled = false
+  store.beginDrawBatch()
+  try {
+    if (canRunSimultaneous(n, targetId)) {
+      await runSimultaneous(n)
       return
     }
-    pendingWinnerIdx.value = idx
-    // The giant wheel shows every candidate (names scroll past), so don't cap
-    // the segment count; the standard wheel keeps the default cap.
-    const label = (c) => formatWinnerName(c, settings.winnerDisplay) || '(no name)'
-    const opts = isGiantWheel.value
-      ? { max: store.candidates.length, label }
-      : { label }
-    const { segments, winnerSegmentIdx } = buildWheelSegments(store.candidates, idx, opts)
-    wheelSegments.value = segments
-    wheelWinnerSegmentIdx.value = winnerSegmentIdx
-    wheelActive.value = true
-  } else {
-    if (targetId) store.selectSpecificCandidate(targetId, settings.animationStyle, { durationMs })
-    else store.selectRandomCandidate(settings.animationStyle, { durationMs })
-  }
-}
-
-function onWheelDone() {
-  wheelActive.value = false
-  if (pendingWinnerIdx.value >= 0) {
-    store.commitAt(pendingWinnerIdx.value)
-    pendingWinnerIdx.value = -1
+    for (let i = 0; i < n; i += 1) {
+      if (batchCancelled) return
+      manualStopRequested.value = false
+      // Decide this spin's length once, here on the screen that runs the
+      // animation, so random durations and manual stop are resolved in
+      // exactly one place. Only the batch's first spin free-runs in 'manual'
+      // mode; the rest run a sane fixed length (see BATCH_FALLBACK_SPIN_MS).
+      let durationMs = resolveDrawDuration(settings.drawTiming)
+      if (i > 0 && !Number.isFinite(durationMs)) durationMs = BATCH_FALLBACK_SPIN_MS
+      drawDurationMs.value = durationMs
+      const spun = (isWheel.value || isPriceWheel.value)
+        ? await spinOnceWheel(durationMs, targetId)
+        : await spinOnceClassic(durationMs, targetId)
+      if (batchCancelled) return
+      if (!spun) {
+        batchShortfall.value = n - i
+        break
+      }
+      batchDrawn.value = i + 1
+      celebrateReveal(i + 1 === n)
+      if (i + 1 < n) await sleep(BATCH_REVEAL_HOLD_MS)
+    }
+  } finally {
+    // cancelBatch() already reset this state (and may have done so while we
+    // were awaiting); doing it twice is harmless.
+    store.endDrawBatch()
+    batchRunning.value = false
   }
 }
 
@@ -125,8 +318,8 @@ function onWheelDone() {
 // portable file:// Offline Edition (localStorage-event fallback). Still falls
 // back to this screen's own GO! button.
 const unsubscribe = onChannelMessage((msg) => {
-  if (msg.type === 'trigger') startDraw()
-  if (msg.type === 'manual-trigger') startDraw(msg.targetId)
+  if (msg.type === 'trigger') startDraw(clampDrawCount(msg.count))
+  if (msg.type === 'manual-trigger') startDraw(1, msg.targetId)
   if (msg.type === 'stop') {
     // End a 'manual' draw: the wheel components watch this prop to settle; the
     // classic loop reads the store flag. Both ignore it when not free-spinning.
@@ -147,16 +340,21 @@ function onKeydown(e) {
   // GO! button) so we don't double-trigger the draw.
   const tag = e.target?.tagName
   if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-  if (store.useMultiDisplayMode || store.spinning || wheelActive.value || !canStart.value) return
+  if (store.useMultiDisplayMode || store.spinning || wheelActive.value || batchRunning.value || !canStart.value) return
   e.preventDefault()
-  startDraw()
+  startDraw(settings.drawCount)
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+// Leaving the drawing screen abandons any in-flight batch (see cancelBatch).
+onBeforeUnmount(cancelBatch)
 
 // Branding (logo + event title) is hidden while a draw is running so it never
-// overlays the spinning wheel; it returns alongside the winner card.
-const introVisible = computed(() => !store.spinning && !wheelActive.value)
+// overlays the spinning wheel; it returns alongside the winner card. During a
+// batch it stays hidden through the inter-spin holds too.
+const introVisible = computed(
+  () => !store.spinning && !wheelActive.value && !batchRunning.value,
+)
 const titleEnabled = computed(
   () => settings.theme.showEventTitle && Boolean(settings.theme.eventTitle),
 )
@@ -191,10 +389,46 @@ const detailRows = computed(() =>
   store.selected ? visibleWinnerFields(store.selected, settings.winnerDisplay) : [],
 )
 
+// End-of-batch roster: shown instead of the single winner card once a
+// multi-winner draw has fully settled.
+const rosterNames = computed(() =>
+  store.lastDrawWinners.map((w) => formatWinnerName(w, settings.winnerDisplay) || '(no name)'),
+)
+const showRoster = computed(
+  () =>
+    rosterNames.value.length > 1 &&
+    !batchRunning.value &&
+    !store.spinning &&
+    !wheelActive.value,
+)
+const shortfallNote = computed(() =>
+  batchShortfall.value > 0
+    ? `Pool ran out — drew ${store.lastDrawWinners.length} of ${batchTotal.value} winners.`
+    : '',
+)
+// The roster carries the shortfall note when several winners came out; a batch
+// that managed only one winner shows a plain winner card, so the note needs its
+// own slot or the operator never learns the draw came up short.
+const soloShortfallNote = computed(() =>
+  shortfallNote.value && !showRoster.value && !batchRunning.value ? shortfallNote.value : '',
+)
+// "Winner 2 of 5" while a sequential multi-winner batch is running. While a
+// spin is running this counts the winner being drawn; during the hold after a
+// reveal it names the winner currently on screen (not the next one).
+const batchProgressText = computed(() => {
+  if (!batchRunning.value || batchTotal.value <= 1 || simulActive.value) return ''
+  const isSpinning = store.spinning || wheelActive.value
+  const n = isSpinning
+    ? Math.min(batchDrawn.value + 1, batchTotal.value)
+    : Math.max(batchDrawn.value, 1)
+  return `Winner ${n} of ${batchTotal.value}`
+})
+
 // Text equivalent of the (canvas-based, otherwise silent) reveal for assistive
 // tech, surfaced through a polite aria-live region.
 const drawStatus = computed(() => {
   if (store.spinning || wheelActive.value) return 'Drawing…'
+  if (showRoster.value) return `Winners: ${rosterNames.value.join(', ')}`
   if (store.selected) return `Winner: ${winnerName.value}`
   return ''
 })
@@ -209,16 +443,17 @@ function prefersReducedMotion() {
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
   )
 }
-watch(
-  () => store.selected,
-  (next, prev) => {
-    if (!next || prev) return
-    celebrate({
-      confetti: settings.celebration.confetti && !prefersReducedMotion(),
-      sound: settings.celebration.sound,
-    })
-  },
-)
+// Fired explicitly by the batch orchestrator on each reveal (every draw path
+// goes through startDraw). Intermediate reveals in a sequential batch get a
+// half-size burst; the final reveal gets the full celebration. Colors,
+// intensity and sound style come from the celebration settings.
+function celebrateReveal(isFinal) {
+  const resolved = resolveCelebration(settings.celebration, settings.theme, {
+    scale: isFinal ? 1 : 0.5,
+  })
+  if (prefersReducedMotion()) resolved.confetti = false
+  celebrate(resolved)
+}
 </script>
 
 <template>
@@ -275,17 +510,33 @@ watch(
             <h1 v-if="titleEnabled && introVisible" class="event-title giant-text">
               {{ settings.theme.eventTitle }}
             </h1>
-            <h1 v-if="store.spinning" class="font-weight-thin giant-text giant-headline">
-              And the Winner Is...
+            <h1
+              v-if="store.spinning && settings.screenText.spinTitle"
+              class="font-weight-thin giant-text giant-headline"
+            >
+              {{ settings.screenText.spinTitle }}
             </h1>
-            <h1 v-else-if="!store.selected" class="font-weight-thin giant-text giant-headline">
-              Ready to start drawing!
+            <h1
+              v-else-if="!store.spinning && !store.selected && settings.screenText.idleTitle"
+              class="font-weight-thin giant-text giant-headline"
+            >
+              {{ settings.screenText.idleTitle }}
             </h1>
+            <div v-if="batchProgressText" class="giant-text batch-progress">
+              {{ batchProgressText }}
+            </div>
           </div>
 
           <transition name="winner-pop">
+            <WinnerRoster
+              v-if="showRoster && !wheelActive"
+              :names="rosterNames"
+              :title="settings.screenText.rosterTitle"
+              :note="shortfallNote"
+              class="winner-overlay"
+            />
             <v-card
-              v-if="store.selected && !wheelActive"
+              v-else-if="store.selected && !wheelActive"
               round
               class="winner-card winner-overlay"
               elevation="12"
@@ -301,14 +552,14 @@ watch(
           </transition>
 
           <v-btn
-            v-if="!store.useMultiDisplayMode && !store.spinning"
+            v-if="!store.useMultiDisplayMode && !store.spinning && !batchRunning"
             :disabled="!canStart"
             variant="elevated"
             color="primary"
             class="giant-go go-btn"
-            @click="startDraw()"
+            @click="startDraw(settings.drawCount)"
           >
-            GO!
+            {{ settings.screenText.goButton || 'GO!' }}
           </v-btn>
 
           <div
@@ -317,18 +568,63 @@ watch(
           >
             {{ startHint }}
           </div>
+          <div v-else-if="soloShortfallNote" class="giant-empty">
+            {{ soloShortfallNote }}
+          </div>
+        </div>
+      </template>
+
+      <!-- Simultaneous multi-winner reveal: one spinner pane per winner, side
+           by side. Used by the classic and standard-wheel styles only. -->
+      <template v-else-if="simulActive">
+        <h1 v-if="settings.screenText.spinTitle" class="display-3 font-weight-thin mb-4 event-title">
+          {{ settings.screenText.spinTitle }}
+        </h1>
+        <div class="simul-grid">
+          <template v-for="pane in simulPanes" :key="pane.id">
+            <WheelSpinner
+              v-if="pane.kind === 'wheel'"
+              :segments="pane.segments"
+              :winner-segment-idx="pane.winnerSegmentIdx"
+              :active="simulActive"
+              :duration-ms="pane.durationMs"
+              :stop-requested="manualStopRequested"
+              :colors="wheelColors"
+              :pointer-color="settings.spinner.pointerColor"
+              :size="simulPaneSize"
+              @done="onPaneDone"
+            />
+            <SlotReveal
+              v-else
+              :names="simulNames"
+              :winner-name="pane.winnerName"
+              :active="simulActive"
+              :duration-ms="pane.durationMs"
+              :stop-requested="manualStopRequested"
+              @done="onPaneDone"
+            />
+          </template>
         </div>
       </template>
 
       <!-- Standard spinning wheel: centered, with the winner card overlaying
            the wheel's center once it stops. -->
       <template v-else-if="isWheel">
-        <h1 v-if="store.spinning" class="display-3 font-weight-thin mb-4 event-title">
-          And the Winner Is...
+        <h1
+          v-if="store.spinning && settings.screenText.spinTitle"
+          class="display-3 font-weight-thin mb-4 event-title"
+        >
+          {{ settings.screenText.spinTitle }}
         </h1>
-        <h1 v-else-if="!store.selected" class="display-3 font-weight-thin mb-4 event-title">
-          Ready to start drawing!
+        <h1
+          v-else-if="!store.spinning && !store.selected && settings.screenText.idleTitle"
+          class="display-3 font-weight-thin mb-4 event-title"
+        >
+          {{ settings.screenText.idleTitle }}
         </h1>
+        <div v-if="batchProgressText" class="text-medium-emphasis mb-2 batch-progress">
+          {{ batchProgressText }}
+        </div>
 
         <div class="wheel-stage" :style="wheelStageStyle">
           <WheelSpinner
@@ -345,10 +641,20 @@ watch(
           />
 
           <transition name="winner-pop">
+            <!-- After a simultaneous draw there's no wheel on the stage, so the
+                 roster sits in normal flow instead of overlaying the center. -->
+            <WinnerRoster
+              v-if="showRoster && !wheelActive"
+              :names="rosterNames"
+              :title="settings.screenText.rosterTitle"
+              :note="shortfallNote"
+              :class="wheelSegments.length ? 'winner-overlay' : ''"
+            />
             <v-card
-              v-if="store.selected && !wheelActive"
+              v-else-if="store.selected && !wheelActive"
               round
-              class="winner-card winner-overlay"
+              class="winner-card"
+              :class="wheelSegments.length ? 'winner-overlay' : ''"
               elevation="12"
             >
               <v-card-text class="overlay-content">
@@ -367,14 +673,14 @@ watch(
         </div>
 
         <v-btn
-          v-if="!store.useMultiDisplayMode && !store.spinning"
+          v-if="!store.useMultiDisplayMode && !store.spinning && !batchRunning"
           :disabled="!canStart"
           variant="elevated"
           color="primary"
           class="mt-6 go-btn"
-          @click="startDraw()"
+          @click="startDraw(settings.drawCount)"
         >
-          GO!
+          {{ settings.screenText.goButton || 'GO!' }}
         </v-btn>
 
         <div
@@ -382,6 +688,9 @@ watch(
           class="text-medium-emphasis mt-2"
         >
           {{ startHint }}
+        </div>
+        <div v-else-if="soloShortfallNote" class="text-medium-emphasis mt-2">
+          {{ soloShortfallNote }}
         </div>
       </template>
 
@@ -393,10 +702,18 @@ watch(
         elevation="8"
       >
         <v-card-title>
-          <h1 v-if="store.spinning" class="display-3 font-weight-thin">And the Winner Is...</h1>
-          <h1 v-else-if="!store.selected" class="display-3 font-weight-thin">
-            Ready to start drawing!
+          <h1 v-if="store.spinning && settings.screenText.spinTitle" class="display-3 font-weight-thin">
+            {{ settings.screenText.spinTitle }}
           </h1>
+          <h1
+            v-else-if="!store.spinning && !store.selected && settings.screenText.idleTitle"
+            class="display-3 font-weight-thin"
+          >
+            {{ settings.screenText.idleTitle }}
+          </h1>
+          <div v-if="batchProgressText" class="text-medium-emphasis batch-progress">
+            {{ batchProgressText }}
+          </div>
         </v-card-title>
 
         <v-card-text>
@@ -408,11 +725,27 @@ watch(
             >
               <h2 class="card-name">{{ spinName }}</h2>
             </div>
+            <div v-else-if="showRoster">
+              <h2 v-if="settings.screenText.rosterTitle" class="roster-heading mb-2">
+                {{ settings.screenText.rosterTitle }}
+              </h2>
+              <div class="roster-grid">
+                <div v-for="(name, i) in rosterNames" :key="i" class="roster-name">
+                  {{ name }}
+                </div>
+              </div>
+              <div v-if="shortfallNote" class="text-medium-emphasis mt-2">
+                {{ shortfallNote }}
+              </div>
+            </div>
             <div v-else-if="store.selected">
               <h2 class="card-name">{{ winnerName }}</h2>
               <div v-for="row in detailRows" :key="row.key" class="card-detail mb-2">
                 <template v-if="settings.winnerDisplay.showLabels">{{ row.label }}: </template
                 >{{ row.value }}
+              </div>
+              <div v-if="soloShortfallNote" class="text-medium-emphasis mt-2">
+                {{ soloShortfallNote }}
               </div>
             </div>
           </div>
@@ -420,12 +753,12 @@ watch(
 
         <v-card-actions v-if="!store.useMultiDisplayMode">
           <v-btn
-            v-show="!store.spinning"
+            v-show="!store.spinning && !batchRunning"
             :disabled="!canStart"
             variant="elevated"
             color="primary"
-            @click="startDraw()"
-            >GO!</v-btn
+            @click="startDraw(settings.drawCount)"
+            >{{ settings.screenText.goButton || 'GO!' }}</v-btn
           >
           <div
             v-if="startHint && !store.spinning"
@@ -461,7 +794,8 @@ button {
   width: 100%;
 }
 .event-logo {
-  max-height: 20vh;
+  /* Sized by the "Logo size" setting (App.vue publishes the variable). */
+  max-height: var(--app-logo-height, 20vh);
   max-width: 80vw;
   object-fit: contain;
 }
@@ -610,5 +944,36 @@ button {
 
 .spin-name {
   display: inline-block;
+}
+
+/* Simultaneous multi-winner reveal: one pane per winner, wrapping to fit. */
+.simul-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.75rem, 2vmin, 1.5rem);
+  max-width: 96vw;
+}
+
+/* End-of-batch roster inside the classic card. */
+.roster-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(0.5rem, 1.5vmin, 1rem) clamp(1rem, 3vmin, 2rem);
+}
+.roster-name {
+  font-size: clamp(1.4rem, 5vmin, 3.5rem);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.roster-heading {
+  font-size: clamp(1.25rem, 4vmin, 2.5rem);
+  line-height: 1.15;
+}
+
+.batch-progress {
+  font-size: clamp(1rem, 2.4vmin, 1.5rem);
 }
 </style>

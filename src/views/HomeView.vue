@@ -2,7 +2,7 @@
 import AdminPanel from '../components/AdminPanel.vue'
 import Title from '../components/Title.vue'
 import { useParticipantStore } from '../stores/participants.js'
-import { useSettingsStore } from '../stores/settings.js'
+import { useSettingsStore, MAX_DRAW_COUNT } from '../stores/settings.js'
 import { ref } from 'vue'
 import { postTrigger, postStop } from '../utils/sync.js'
 
@@ -21,15 +21,16 @@ function saveMultiDisplay() {
 function selectWinner() {
   // Cross-tab trigger for multi-display mode. Works on the web
   // (BroadcastChannel) and in the portable file:// build (localStorage-event
-  // fallback).
-  postTrigger()
+  // fallback). Carries the winners-per-draw count.
+  postTrigger(settings.drawCount)
 }
 
 // Manual-timing flow: Start kicks off a free-spin on the drawing screen, Stop
 // tells it to decelerate to the winner. Both travel the same channel as the
-// regular trigger.
+// regular trigger. In a multi-winner batch, Stop ends the first (free-running)
+// spin; the remaining spins run at a fixed length on their own.
 function startManualDraw() {
-  postTrigger()
+  postTrigger(settings.drawCount)
   manualSpinning.value = true
 }
 
@@ -66,9 +67,24 @@ function stopManualDraw() {
                           Stop
                         </v-btn>
                       </template>
-                      <v-btn v-else @click="selectWinner">Select winner</v-btn>
+                      <v-btn v-else @click="selectWinner">
+                        Select winner{{ settings.drawCount > 1 ? 's' : '' }}
+                      </v-btn>
                     </template>
                   </nav>
+                  <v-text-field
+                    v-if="store.useMultiDisplayMode"
+                    :model-value="settings.drawCount"
+                    type="number"
+                    min="1"
+                    :max="MAX_DRAW_COUNT"
+                    label="Winners per draw"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    class="draw-count-field mt-3"
+                    @update:model-value="settings.setDrawCount($event)"
+                  />
                   <p
                     v-if="settings.drawTiming.mode === 'manual' && !store.useMultiDisplayMode"
                     class="text-caption text-medium-emphasis mt-1"
@@ -103,4 +119,8 @@ function stopManualDraw() {
   </v-main>
 </template>
 
-<style></style>
+<style scoped>
+.draw-count-field {
+  max-width: 12rem;
+}
+</style>

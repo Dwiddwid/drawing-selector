@@ -4,9 +4,10 @@
 // already handles the web BroadcastChannel vs. portable file:// localStorage
 // transports). Messages are typed objects:
 //
-//   { v: 1, type: 'trigger' }                                  — start a draw
+//   { v: 1, type: 'trigger', count? }                          — start a draw
+//     for `count` winners (absent/invalid ⇒ 1; receivers clamp it)
 //   { v: 1, type: 'manual-trigger', targetId }                 — start a draw
-//     that lands on a specific participant
+//     that lands on a specific participant (always a single winner)
 //   { v: 1, type: 'stop' }                                     — stop an
 //     in-progress 'manual'-timed draw (admin presses Stop)
 //   { v: 1, type: 'sync', scope: 'participants' | 'settings' } — "re-read this
@@ -34,8 +35,8 @@ export function normalizeChannelMessage(data) {
   return { v: 0, type: 'trigger' }
 }
 
-export function postTrigger() {
-  getChannel()?.postMessage({ v: 1, type: 'trigger' })
+export function postTrigger(count = 1) {
+  getChannel()?.postMessage({ v: 1, type: 'trigger', count })
 }
 
 export function postManualTrigger(targetId) {

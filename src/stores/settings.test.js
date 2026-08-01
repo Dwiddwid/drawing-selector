@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useSettingsStore, defaultSettings, mergeSettings } from './settings.js'
+import { useSettingsStore, defaultSettings, mergeSettings, clampDrawCount } from './settings.js'
 
 describe('settings store', () => {
   beforeEach(() => {
@@ -169,7 +169,7 @@ describe('settings store', () => {
     settings.resetSettings()
     expect(settings.theme.primary).toBe('#1e3d59')
     expect(settings.animationStyle).toBe('classic')
-    expect(settings.celebration).toEqual({ confetti: true, sound: true })
+    expect(settings.celebration).toMatchObject({ confetti: true, sound: true })
     expect(localStorage.getItem('settings')).toBe(null)
   })
 
@@ -279,7 +279,7 @@ describe('settings store', () => {
     it('defaults to the classic style with confetti and sound enabled', () => {
       const settings = useSettingsStore()
       expect(settings.animationStyle).toBe('classic')
-      expect(settings.celebration).toEqual({ confetti: true, sound: true })
+      expect(settings.celebration).toMatchObject({ confetti: true, sound: true })
     })
 
     it('setAnimationStyle accepts known styles and persists', () => {
@@ -315,7 +315,7 @@ describe('settings store', () => {
         celebration: { sound: false },
       })
       expect(merged.animationStyle).toBe('reel')
-      expect(merged.celebration).toEqual({ confetti: true, sound: false })
+      expect(merged.celebration).toMatchObject({ confetti: true, sound: false })
     })
 
     it('mergeSettings rejects an unknown animation style', () => {
@@ -334,6 +334,147 @@ describe('settings store', () => {
       expect(reloaded.animationStyle).toBe('reel')
       expect(reloaded.celebration.confetti).toBe(false)
       expect(reloaded.celebration.sound).toBe(true)
+    })
+  })
+
+  describe('multi-winner draws', () => {
+    it('defaults to 1 winner per draw, revealed simultaneously', () => {
+      const settings = useSettingsStore()
+      expect(settings.drawCount).toBe(1)
+      expect(settings.multiWinnerReveal).toBe('simultaneous')
+    })
+
+    it('clampDrawCount floors, clamps to [1, 20], and falls back on junk', () => {
+      expect(clampDrawCount(3)).toBe(3)
+      expect(clampDrawCount(3.9)).toBe(3)
+      expect(clampDrawCount(0)).toBe(1)
+      expect(clampDrawCount(-5)).toBe(1)
+      expect(clampDrawCount(999)).toBe(20)
+      expect(clampDrawCount('abc')).toBe(1)
+      expect(clampDrawCount(undefined)).toBe(1)
+      expect(clampDrawCount('abc', 5)).toBe(5)
+      expect(clampDrawCount('7')).toBe(7)
+    })
+
+    it('setDrawCount clamps and persists round-trip', () => {
+      const settings = useSettingsStore()
+      settings.setDrawCount(5)
+      expect(settings.drawCount).toBe(5)
+      settings.setDrawCount(999)
+      expect(settings.drawCount).toBe(20)
+      settings.setDrawCount('junk') // keeps the current value
+      expect(settings.drawCount).toBe(20)
+
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.drawCount).toBe(20)
+    })
+
+    it('setMultiWinnerReveal accepts known modes and ignores junk', () => {
+      const settings = useSettingsStore()
+      settings.setMultiWinnerReveal('sequential')
+      expect(settings.multiWinnerReveal).toBe('sequential')
+      settings.setMultiWinnerReveal('made-up')
+      expect(settings.multiWinnerReveal).toBe('sequential')
+
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.multiWinnerReveal).toBe('sequential')
+    })
+
+    it('mergeSettings fills defaults for older blobs and validates values', () => {
+      expect(mergeSettings({}).drawCount).toBe(1)
+      expect(mergeSettings({}).multiWinnerReveal).toBe('simultaneous')
+      expect(mergeSettings({ drawCount: 7 }).drawCount).toBe(7)
+      expect(mergeSettings({ drawCount: 'junk' }).drawCount).toBe(1)
+      expect(mergeSettings({ drawCount: 50 }).drawCount).toBe(20)
+      expect(mergeSettings({ multiWinnerReveal: 'sequential' }).multiWinnerReveal).toBe('sequential')
+      expect(mergeSettings({ multiWinnerReveal: 'nope' }).multiWinnerReveal).toBe('simultaneous')
+    })
+
+    it('persist() reports storage failures instead of swallowing them', () => {
+      const settings = useSettingsStore()
+      expect(settings.persist()).toBe(true)
+      expect(settings.persistErrorCount).toBe(0)
+
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota exceeded', 'QuotaExceededError')
+      })
+      expect(settings.persist()).toBe(false)
+      expect(settings.persistErrorCount).toBe(1)
+      expect(settings.persist()).toBe(false)
+      expect(settings.persistErrorCount).toBe(2)
+      spy.mockRestore()
+    })
+
+    it('resetSettings restores the multi-winner defaults', () => {
+      const settings = useSettingsStore()
+      settings.setDrawCount(5)
+      settings.setMultiWinnerReveal('sequential')
+      settings.resetSettings()
+      expect(settings.drawCount).toBe(1)
+      expect(settings.multiWinnerReveal).toBe('simultaneous')
+    })
+  })
+
+  describe('celebration styling & screen text', () => {
+    it('old { confetti, sound } blobs keep their booleans and gain style defaults', () => {
+      const merged = mergeSettings({ celebration: { confetti: false, sound: true } })
+      expect(merged.celebration.confetti).toBe(false)
+      expect(merged.celebration.sound).toBe(true)
+      expect(merged.celebration.confettiColorMode).toBe('classic')
+      expect(merged.celebration.intensity).toBe('medium')
+      expect(merged.celebration.soundStyle).toBe('chime')
+      expect(merged.celebration.confettiCustomColors.length).toBeGreaterThan(0)
+    })
+
+    it('rejects invalid celebration enums and empty custom palettes', () => {
+      const merged = mergeSettings({
+        celebration: {
+          confettiColorMode: 'nope',
+          intensity: 'extreme',
+          soundStyle: 'airhorn',
+          confettiCustomColors: [],
+        },
+      })
+      expect(merged.celebration.confettiColorMode).toBe('classic')
+      expect(merged.celebration.intensity).toBe('medium')
+      expect(merged.celebration.soundStyle).toBe('chime')
+      expect(merged.celebration.confettiCustomColors.length).toBeGreaterThan(0)
+    })
+
+    it('screenText merges per key, allows empty strings, resets non-strings', () => {
+      const merged = mergeSettings({
+        screenText: { spinTitle: 'Wer gewinnt?', idleTitle: '', goButton: 42 },
+      })
+      expect(merged.screenText.spinTitle).toBe('Wer gewinnt?')
+      expect(merged.screenText.idleTitle).toBe('') // deliberate hide
+      expect(merged.screenText.goButton).toBe('GO!')
+      expect(merged.screenText.rosterTitle).toBe('Our winners!')
+    })
+
+    it('screenText fills defaults for older blobs and round-trips', () => {
+      expect(mergeSettings({}).screenText.idleTitle).toBe('Ready to start drawing!')
+
+      const settings = useSettingsStore()
+      settings.updateScreenText({ spinTitle: 'Drum roll…' })
+      setActivePinia(createPinia())
+      const reloaded = useSettingsStore()
+      reloaded.loadFromStorage()
+      expect(reloaded.screenText.spinTitle).toBe('Drum roll…')
+      expect(reloaded.screenText.goButton).toBe('GO!')
+    })
+
+    it('clamps logoHeightVh into [8, 45] and validates theme.mode', () => {
+      expect(mergeSettings({ theme: { logoHeightVh: 100 } }).theme.logoHeightVh).toBe(45)
+      expect(mergeSettings({ theme: { logoHeightVh: 2 } }).theme.logoHeightVh).toBe(8)
+      expect(mergeSettings({ theme: { logoHeightVh: 'big' } }).theme.logoHeightVh).toBe(20)
+      expect(mergeSettings({}).theme.logoHeightVh).toBe(20)
+      expect(mergeSettings({ theme: { mode: 'dark' } }).theme.mode).toBe('dark')
+      expect(mergeSettings({ theme: { mode: 'sepia' } }).theme.mode).toBe('light')
+      expect(mergeSettings({}).theme.mode).toBe('light')
     })
   })
 })

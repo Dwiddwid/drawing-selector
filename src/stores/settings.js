@@ -1,9 +1,21 @@
 import { defineStore } from 'pinia'
 import { DEFAULT_WHEEL_COLORS } from '../utils/wheel.js'
+import { DEFAULT_CONFETTI_COLORS } from '../utils/celebration.js'
 import { broadcastSync } from '../utils/sync.js'
 import { DRAW_TIMING_MODES, clampDrawMs } from '../utils/drawTiming.js'
 
 const SETTINGS_KEY = 'settings'
+
+// Winners revealed per draw trigger. Capped so a fat-fingered count can't lock
+// the projector into a marathon of spins.
+export const MAX_DRAW_COUNT = 20
+export const MULTI_WINNER_REVEALS = ['simultaneous', 'sequential']
+
+export function clampDrawCount(value, fallback = 1) {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < 1) return fallback
+  return Math.min(MAX_DRAW_COUNT, n)
+}
 
 // Default look mirrors the original "ocean" palette so existing installs are
 // visually unchanged until the user customizes anything.
@@ -23,8 +35,12 @@ export function defaultSettings() {
       backgroundImage: null, // data URL when backgroundStyle === 'image'
       backgroundGradient: { from: '#1e3d59', to: '#1c8c9a', angle: 160 },
       logo: null, // data URL shown above the drawing card
+      logoHeightVh: 20, // logo cap in viewport-height units, 8–45
       eventTitle: "It's drawing time!",
       showEventTitle: true,
+      // Light/dark presentation. Dark flips the Vuetify theme and the derived
+      // text/surface fallbacks; explicit color overrides still win.
+      mode: 'light', // 'light' | 'dark'
       // Optional overrides. null = derive from the palette above (textColor and
       // headlineColor fall back to primary; winnerCardBg to surface;
       // winnerCardText to primary) — which is the original look.
@@ -60,11 +76,33 @@ export function defaultSettings() {
       minMs: 3000,
       maxMs: 8000,
     },
-    // Post-reveal celebration. Both are opt-out so existing installs keep the
-    // bigger-feeling default presentation.
+    // Winners per draw trigger (1 = the classic single draw).
+    drawCount: 1,
+    // How a multi-winner draw is revealed:
+    //   'simultaneous' — several spinners run side by side when the animation
+    //     style supports it (classic, standard wheel); otherwise falls back to
+    //     sequential automatically (giant wheel/reel are full-viewport).
+    //   'sequential' — always one spin at a time, roster at the end.
+    multiWinnerReveal: 'simultaneous',
+    // Post-reveal celebration. Confetti/sound are opt-out so existing installs
+    // keep the bigger-feeling default presentation; the styling knobs default
+    // to the original hard-coded look.
     celebration: {
       confetti: true,
+      confettiColorMode: 'classic', // 'classic' | 'theme' | 'custom'
+      confettiCustomColors: [...DEFAULT_CONFETTI_COLORS],
+      intensity: 'medium', // 'low' | 'medium' | 'high' — particle count
       sound: true,
+      soundStyle: 'chime', // 'chime' | 'fanfare' | 'tada'
+    },
+    // Projector-screen wording — editable for non-English events and draws
+    // that aren't about people ("And the Winner Is…" reads oddly for a
+    // restaurant pick). An empty string hides that line entirely.
+    screenText: {
+      idleTitle: 'Ready to start drawing!',
+      spinTitle: 'And the Winner Is...',
+      rosterTitle: 'Our winners!',
+      goButton: 'GO!',
     },
     // Participant list display options.
     participantList: {
@@ -133,6 +171,16 @@ const ANIMATION_STYLES = ['classic', 'wheel', 'wheel-giant', 'reel']
 const BACKGROUND_STYLES = ['waves', 'solid', 'image', 'gradient']
 const SPINNER_COLOR_MODES = ['default', 'theme', 'custom']
 const SPINNER_POSITIONS = ['center', 'left', 'right']
+const THEME_MODES = ['light', 'dark']
+export const CONFETTI_COLOR_MODES = ['classic', 'theme', 'custom']
+export const CELEBRATION_INTENSITIES = ['low', 'medium', 'high']
+export const CELEBRATION_SOUND_STYLES = ['chime', 'fanfare', 'tada']
+
+export function clampLogoHeight(value, fallback = 20) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(45, Math.max(8, Math.round(n)))
+}
 
 // Deep-merge stored settings over the defaults so settings saved by an older
 // version (missing newly-added fields) still load cleanly.
@@ -150,6 +198,8 @@ export function mergeSettings(stored) {
   if (!BACKGROUND_STYLES.includes(theme.backgroundStyle)) {
     theme.backgroundStyle = base.theme.backgroundStyle
   }
+  if (!THEME_MODES.includes(theme.mode)) theme.mode = base.theme.mode
+  theme.logoHeightVh = clampLogoHeight(theme.logoHeightVh, base.theme.logoHeightVh)
   const drawTiming = { ...base.drawTiming, ...(stored.drawTiming || {}) }
   if (!DRAW_TIMING_MODES.includes(drawTiming.mode)) drawTiming.mode = base.drawTiming.mode
   drawTiming.fixedMs = clampDrawMs(drawTiming.fixedMs, base.drawTiming.fixedMs)
@@ -174,7 +224,37 @@ export function mergeSettings(stored) {
       ? stored.animationStyle
       : base.animationStyle,
     drawTiming,
-    celebration: { ...base.celebration, ...(stored.celebration || {}) },
+    drawCount: clampDrawCount(stored.drawCount, base.drawCount),
+    multiWinnerReveal: MULTI_WINNER_REVEALS.includes(stored.multiWinnerReveal)
+      ? stored.multiWinnerReveal
+      : base.multiWinnerReveal,
+    // The flat spread is what keeps old { confetti, sound } blobs working —
+    // stored booleans survive and newly-added keys fall back to defaults.
+    celebration: (() => {
+      const c = { ...base.celebration, ...(stored.celebration || {}) }
+      if (!CONFETTI_COLOR_MODES.includes(c.confettiColorMode)) {
+        c.confettiColorMode = base.celebration.confettiColorMode
+      }
+      if (!CELEBRATION_INTENSITIES.includes(c.intensity)) {
+        c.intensity = base.celebration.intensity
+      }
+      if (!CELEBRATION_SOUND_STYLES.includes(c.soundStyle)) {
+        c.soundStyle = base.celebration.soundStyle
+      }
+      if (!Array.isArray(c.confettiCustomColors) || c.confettiCustomColors.length === 0) {
+        c.confettiCustomColors = [...base.celebration.confettiCustomColors]
+      }
+      return c
+    })(),
+    // Per-key string merge; an empty string is a deliberate "hide this line".
+    screenText: (() => {
+      const sw = stored.screenText || {}
+      const st = {}
+      for (const key of Object.keys(base.screenText)) {
+        st[key] = typeof sw[key] === 'string' ? sw[key] : base.screenText[key]
+      }
+      return st
+    })(),
     spinner,
     participantList: (() => {
       const pl = { ...base.participantList, ...(stored.participantList || {}) }
@@ -191,7 +271,9 @@ export function mergeSettings(stored) {
 }
 
 export const useSettingsStore = defineStore('settingsStore', {
-  state: () => defaultSettings(),
+  // persistErrorCount is session-only bookkeeping (never serialized): it bumps
+  // when a save fails so the admin UI can toast a storage-full warning.
+  state: () => ({ ...defaultSettings(), persistErrorCount: 0 }),
   actions: {
     loadFromStorage() {
       const merged = mergeSettings(readJSON(SETTINGS_KEY, null))
@@ -200,7 +282,10 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.winnerDisplay = merged.winnerDisplay
       this.animationStyle = merged.animationStyle
       this.drawTiming = merged.drawTiming
+      this.drawCount = merged.drawCount
+      this.multiWinnerReveal = merged.multiWinnerReveal
       this.celebration = merged.celebration
+      this.screenText = merged.screenText
       this.spinner = merged.spinner
       this.participantList = merged.participantList
     },
@@ -214,17 +299,23 @@ export const useSettingsStore = defineStore('settingsStore', {
             winnerDisplay: this.winnerDisplay,
             animationStyle: this.animationStyle,
             drawTiming: this.drawTiming,
+            drawCount: this.drawCount,
+            multiWinnerReveal: this.multiWinnerReveal,
             celebration: this.celebration,
+            screenText: this.screenText,
             spinner: this.spinner,
             participantList: this.participantList,
           }),
         )
       } catch {
         // Quota exceeded (large background image / logo data URLs). The
-        // in-memory settings still apply for this session.
-        return
+        // in-memory settings still apply for this session; bump the counter so
+        // the admin UI can warn that the change won't survive a reload.
+        this.persistErrorCount += 1
+        return false
       }
       broadcastSync('settings')
+      return true
     },
     setAnimationStyle(value) {
       this.animationStyle = ANIMATION_STYLES.includes(value) ? value : 'classic'
@@ -239,8 +330,22 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.drawTiming = next
       this.persist()
     },
+    setDrawCount(value) {
+      this.drawCount = clampDrawCount(value, this.drawCount)
+      this.persist()
+    },
+    setMultiWinnerReveal(mode) {
+      this.multiWinnerReveal = MULTI_WINNER_REVEALS.includes(mode)
+        ? mode
+        : this.multiWinnerReveal
+      this.persist()
+    },
     updateCelebration(partial) {
       this.celebration = { ...this.celebration, ...partial }
+      this.persist()
+    },
+    updateScreenText(partial) {
+      this.screenText = { ...this.screenText, ...partial }
       this.persist()
     },
     setIsPro(value) {
@@ -323,7 +428,10 @@ export const useSettingsStore = defineStore('settingsStore', {
       this.winnerDisplay = fresh.winnerDisplay
       this.animationStyle = fresh.animationStyle
       this.drawTiming = fresh.drawTiming
+      this.drawCount = fresh.drawCount
+      this.multiWinnerReveal = fresh.multiWinnerReveal
       this.celebration = fresh.celebration
+      this.screenText = fresh.screenText
       this.spinner = fresh.spinner
       this.participantList = fresh.participantList
       localStorage.removeItem(SETTINGS_KEY)

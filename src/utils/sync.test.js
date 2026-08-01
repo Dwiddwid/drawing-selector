@@ -41,7 +41,7 @@ describe('sync channel', () => {
   })
 
   describe('web transport (BroadcastChannel)', () => {
-    it('postTrigger delivers a typed trigger to another channel', async () => {
+    it('postTrigger delivers a typed trigger with a default count of 1', async () => {
       setProtocol('https:')
       const receiver = createTriggerChannel()
       const received = await new Promise((resolve) => {
@@ -49,7 +49,25 @@ describe('sync channel', () => {
         postTrigger()
       })
       receiver.close()
-      expect(received).toEqual({ v: 1, type: 'trigger' })
+      expect(received).toEqual({ v: 1, type: 'trigger', count: 1 })
+    })
+
+    it('postTrigger carries the winners-per-draw count', async () => {
+      setProtocol('https:')
+      const receiver = createTriggerChannel()
+      const received = await new Promise((resolve) => {
+        receiver.onMessage((data) => resolve(data))
+        postTrigger(3)
+      })
+      receiver.close()
+      expect(received).toEqual({ v: 1, type: 'trigger', count: 3 })
+    })
+
+    it('a count-less trigger from an old sender still normalizes to a trigger', () => {
+      // Old senders post { v: 1, type: 'trigger' } with no count — receivers
+      // clamp the missing field to 1 via clampDrawCount.
+      const msg = { v: 1, type: 'trigger' }
+      expect(normalizeChannelMessage(msg)).toBe(msg)
     })
 
     it('postStop delivers a typed stop to another channel', async () => {

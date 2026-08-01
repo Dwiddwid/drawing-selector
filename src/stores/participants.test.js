@@ -1027,4 +1027,272 @@ describe('participant store', () => {
       expect(store.candidates).toHaveLength(0)
     })
   })
+
+  describe('batch draws (multi-winner)', () => {
+    it('beginDrawBatch clears the roster; each commit appends to it', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      store.beginDrawBatch()
+      expect(store.lastDrawWinners).toEqual([])
+      store.index = 0
+      store.commitSelection()
+      store.index = 0
+      store.commitSelection()
+      expect(store.lastDrawWinners.map(first)).toEqual(['Ada', 'Alan'])
+      store.endDrawBatch()
+      // The roster survives endDrawBatch (it drives the end-of-batch display)…
+      expect(store.lastDrawWinners).toHaveLength(2)
+      // …and the next batch starts fresh.
+      store.beginDrawBatch()
+      expect(store.lastDrawWinners).toEqual([])
+      store.endDrawBatch()
+    })
+
+    it('excludes in-batch winners from later picks in multi-win mode, only while active', () => {
+      const store = useParticipantStore()
+      const settings = useSettingsStore()
+      settings.participantList.entriesMode = 'multi-win'
+      store.candidates = [
+        { ...person('Ada', 'Lovelace'), entries: 5 },
+        { ...person('Alan', 'Turing'), entries: 1 },
+      ]
+      store.beginDrawBatch()
+      store.index = 0
+      store.commitSelection()
+      // Ada stays in the pool (multi-win, 4 entries left) but is excluded from
+      // this batch's drawable pool — only Alan can win the next spin.
+      expect(store.candidates).toHaveLength(2)
+      expect(store.drawableCandidates.map(first)).toEqual(['Alan'])
+      expect(store.totalEntries).toBe(1)
+      store.endDrawBatch()
+      // Once the batch ends she is drawable again.
+      expect(store.drawableCandidates.map(first)).toEqual(['Ada', 'Alan'])
+      expect(store.totalEntries).toBe(5)
+    })
+
+    it('a 3-winner odds batch yields 3 distinct winners via sequential spins', () => {
+      vi.useFakeTimers()
+      const store = useParticipantStore()
+      store.candidates = [
+        person('Ada', 'Lovelace'),
+        person('Alan', 'Turing'),
+        person('Grace', 'Hopper'),
+        person('Edsger', 'Dijkstra'),
+        person('Donald', 'Knuth'),
+      ]
+      store.beginDrawBatch()
+      for (let i = 0; i < 3; i += 1) {
+        expect(store.selectRandomCandidate('classic', { durationMs: 1000 })).toBe(true)
+        vi.runAllTimers()
+      }
+      store.endDrawBatch()
+      expect(store.lastDrawWinners).toHaveLength(3)
+      expect(store.winners).toHaveLength(3)
+      expect(store.candidates).toHaveLength(2)
+      const names = store.lastDrawWinners.map(first)
+      expect(new Set(names).size).toBe(3)
+      vi.useRealTimers()
+    })
+
+    it('onDone fires after the winner is committed', () => {
+      vi.useFakeTimers()
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      let winnersAtDone = -1
+      let spinningAtDone = null
+      store.selectRandomCandidate('classic', {
+        durationMs: 1000,
+        onDone: () => {
+          winnersAtDone = store.winners.length
+          spinningAtDone = store.spinning
+        },
+      })
+      vi.runAllTimers()
+      expect(winnersAtDone).toBe(1)
+      expect(spinningAtDone).toBe(false)
+      vi.useRealTimers()
+    })
+
+    it('an exhausted pool refuses further spins (batch shortfall)', () => {
+      vi.useFakeTimers()
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      store.beginDrawBatch()
+      for (let i = 0; i < 2; i += 1) {
+        expect(store.selectRandomCandidate('classic', { durationMs: 1000 })).toBe(true)
+        vi.runAllTimers()
+      }
+      // Third spin of a "draw 5" batch: nothing left to draw.
+      expect(store.selectRandomCandidate('classic', { durationMs: 1000 })).toBe(false)
+      store.endDrawBatch()
+      expect(store.lastDrawWinners).toHaveLength(2)
+      vi.useRealTimers()
+    })
+
+    describe('pickWinnerIds', () => {
+      it('returns n distinct ids without mutating any state', () => {
+        const store = useParticipantStore()
+        store.candidates = [
+          person('Ada', 'Lovelace'),
+          person('Alan', 'Turing'),
+          person('Grace', 'Hopper'),
+        ]
+        const before = JSON.stringify(store.candidates)
+        const ids = store.pickWinnerIds(3)
+        expect(ids).toHaveLength(3)
+        expect(new Set(ids).size).toBe(3)
+        expect(JSON.stringify(store.candidates)).toBe(before)
+        expect(store.winners).toHaveLength(0)
+        expect(store.selected).toBeNull()
+      })
+
+      it('returns fewer ids when the pool runs short', () => {
+        const store = useParticipantStore()
+        store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+        expect(store.pickWinnerIds(5)).toHaveLength(2)
+        expect(store.pickWinnerIds(0)).toHaveLength(0)
+      })
+
+      it('skips zero-entry participants and same-identity duplicates', () => {
+        const store = useParticipantStore()
+        store.candidates = [
+          { ...person('Ada', 'Lovelace'), entries: 1 },
+          { ...person('Alan', 'Turing'), entries: 0 },
+          // Same identity as Ada under a different id — only one may win.
+          { ...person('Ada', 'Lovelace'), id: 'ada-duplicate' },
+        ]
+        const ids = store.pickWinnerIds(3)
+        expect(ids).toHaveLength(1)
+      })
+    })
+
+    describe('commitWinnerById', () => {
+      it('commits by id with odds-mode removal and appends to the roster', () => {
+        const store = useParticipantStore()
+        store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+        store.beginDrawBatch()
+        expect(store.commitWinnerById('Alan-Turing')).toBe(true)
+        expect(store.winners.map(first)).toEqual(['Alan'])
+        expect(store.candidates.map(first)).toEqual(['Ada'])
+        expect(store.lastDrawWinners.map(first)).toEqual(['Alan'])
+        expect(first(store.selected)).toBe('Alan')
+        store.endDrawBatch()
+      })
+
+      it('decrements entries in multi-win mode, same as commitSelection', () => {
+        const store = useParticipantStore()
+        const settings = useSettingsStore()
+        settings.participantList.entriesMode = 'multi-win'
+        store.candidates = [{ ...person('Ada', 'Lovelace'), entries: 3 }]
+        expect(store.commitWinnerById('Ada-Lovelace')).toBe(true)
+        expect(store.candidates).toHaveLength(1)
+        expect(store.candidates[0].entries).toBe(2)
+      })
+
+      it('returns false for an unknown id', () => {
+        const store = useParticipantStore()
+        store.candidates = [person('Ada', 'Lovelace')]
+        expect(store.commitWinnerById('nobody')).toBe(false)
+        expect(store.winners).toHaveLength(0)
+      })
+    })
+
+    it('manual admin awards stay out of the roster (no batch running)', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      // The Participants tab's per-row "make winner" path commits outside a
+      // batch — the projector must not then show a stale winners roster.
+      store.manuallySelectWinner('Ada-Lovelace')
+      store.manuallySelectWinner('Alan-Turing')
+      expect(store.winners).toHaveLength(2)
+      expect(store.lastDrawWinners).toHaveLength(0)
+    })
+
+    it('resetWinners and importState clear the roster', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+      store.beginDrawBatch()
+      store.index = 0
+      store.commitSelection()
+      store.index = 0
+      store.commitSelection()
+      store.endDrawBatch()
+      expect(store.lastDrawWinners).toHaveLength(2)
+
+      store.resetWinners('remove')
+      expect(store.lastDrawWinners).toHaveLength(0)
+
+      store.beginDrawBatch()
+      store.candidates = [person('Grace', 'Hopper')]
+      store.index = 0
+      store.commitSelection()
+      store.endDrawBatch()
+      expect(store.lastDrawWinners).toHaveLength(1)
+      store.importState({ candidates: [], winners: [] })
+      expect(store.lastDrawWinners).toHaveLength(0)
+      expect(store.batchActive).toBe(false)
+    })
+
+    describe('abortSpin', () => {
+      it('stops an in-flight classic spin without committing a winner', () => {
+        vi.useFakeTimers()
+        const store = useParticipantStore()
+        store.candidates = [person('Ada', 'Lovelace'), person('Alan', 'Turing')]
+        store.beginDrawBatch()
+        let doneFired = false
+        store.selectRandomCandidate('classic', {
+          durationMs: 5000,
+          onDone: () => { doneFired = true },
+        })
+        // Part-way through the spin the operator navigates away.
+        vi.advanceTimersByTime(100)
+        expect(store.spinning).toBe(true)
+        expect(store.abortSpin()).toBe(true)
+        vi.runAllTimers()
+
+        // No winner awarded, pool untouched, and the awaiting batch is released
+        // so it can unwind instead of hanging on a promise that never settles.
+        expect(store.winners).toHaveLength(0)
+        expect(store.candidates).toHaveLength(2)
+        expect(store.lastDrawWinners).toHaveLength(0)
+        expect(store.spinning).toBe(false)
+        expect(store.index).toBe(-1)
+        expect(doneFired).toBe(true)
+        vi.useRealTimers()
+      })
+
+      it('leaves the store drawable after an abort', () => {
+        vi.useFakeTimers()
+        const store = useParticipantStore()
+        store.candidates = [person('Ada', 'Lovelace')]
+        store.selectRandomCandidate('classic', { durationMs: 5000 })
+        vi.advanceTimersByTime(100)
+        store.abortSpin()
+        vi.runAllTimers()
+
+        // The next draw must still be possible — a stuck `spinning` used to
+        // block every future trigger until a full page reload.
+        expect(store.spinning).toBe(false)
+        expect(store.selectRandomCandidate('classic', { durationMs: 1000 })).toBe(true)
+        vi.runAllTimers()
+        expect(store.winners).toHaveLength(1)
+        vi.useRealTimers()
+      })
+
+      it('returns false when nothing is spinning', () => {
+        const store = useParticipantStore()
+        expect(store.abortSpin()).toBe(false)
+      })
+    })
+
+    it('endVisualSpin clears spinning without committing', () => {
+      const store = useParticipantStore()
+      store.candidates = [person('Ada', 'Lovelace')]
+      expect(store.beginVisualSpin()).toBe(true)
+      expect(store.spinning).toBe(true)
+      store.endVisualSpin()
+      expect(store.spinning).toBe(false)
+      expect(store.winners).toHaveLength(0)
+    })
+  })
 })

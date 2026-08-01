@@ -12,16 +12,101 @@ export function uid() {
   return `p_${Date.now().toString(36)}_${uidCounter}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-// Parse raw CSV text into ordered headers and row objects.
-// Handles quoted fields containing commas/newlines, escaped "" quotes, and
+// Delimiters we can parse. Comma is the classic CSV; semicolon is what Excel
+// exports in many European locales; tab covers TSV files and text pasted
+// straight out of a spreadsheet.
+export const CSV_DELIMITERS = [',', ';', '\t']
+
+// Field counts per line for each candidate delimiter, quote-aware, over the
+// first `maxLines` non-empty lines. A line always has at least one field.
+function delimiterFieldCounts(source, maxLines = 10) {
+  const counts = { ',': [], ';': [], '\t': [] }
+  let current = { ',': 1, ';': 1, '\t': 1 }
+  let inQuotes = false
+  let lineHadContent = false
+  const endLine = () => {
+    if (lineHadContent) {
+      for (const d of CSV_DELIMITERS) counts[d].push(current[d])
+    }
+    current = { ',': 1, ';': 1, '\t': 1 }
+    lineHadContent = false
+  }
+  for (let i = 0; i < source.length; i++) {
+    if (counts[','].length >= maxLines) break
+    const c = source[i]
+    if (inQuotes) {
+      if (c === '"') {
+        // A doubled "" is an escaped quote, not the end of the quoted field.
+        if (source[i + 1] === '"') i++
+        else inQuotes = false
+      } else if (c.trim() !== '') lineHadContent = true
+      continue
+    }
+    if (c === '"') {
+      inQuotes = true
+      lineHadContent = true
+    } else if (c === '\n') {
+      endLine()
+    } else if (c === '\r') {
+      endLine()
+      if (source[i + 1] === '\n') i++
+    } else {
+      if (c.trim() !== '') lineHadContent = true
+      if (c in current) current[c] += 1
+    }
+  }
+  endLine()
+  return counts
+}
+
+// Guess the delimiter from how *consistently* it splits the sample into
+// columns, not from raw frequency. A candidate only qualifies if it splits the
+// header row into more than one field; it is then scored by the fraction of
+// lines that produce that same field count. Comma wins ties and is the
+// fallback when nothing qualifies.
+//
+// Frequency alone silently destroys data: a one-column "Name" list holding
+// "Lovelace; Ada" has more semicolons than commas, and splitting on them drops
+// every given name. Requiring the header to agree with the body rejects that,
+// while still detecting genuine semicolon/TSV exports.
+export function detectDelimiter(text) {
+  const source = String(text ?? '')
+  const counts = delimiterFieldCounts(source)
+  let best = ','
+  let bestScore = 0
+  for (const d of CSV_DELIMITERS) {
+    const lines = counts[d]
+    const header = lines[0] ?? 1
+    if (header <= 1) continue
+    const agreeing = lines.filter((n) => n === header).length
+    const score = agreeing / lines.length
+    // Strictly greater keeps the declaration order (',' > ';' > '\t') on ties.
+    if (score > bestScore) {
+      best = d
+      bestScore = score
+    }
+  }
+  return best
+}
+
+// Parse raw CSV/TSV text into ordered headers and row objects.
+// Handles quoted fields containing delimiters/newlines, escaped "" quotes, and
 // \r\n / \r / \n line endings. Trims headers and values; skips blank lines.
-export function parseCsv(text) {
+//   delimiter — ',', ';' or '\t'; auto-detected when omitted.
+//   hasHeader — false treats every row as data and synthesizes headers
+//     ('Name', 'Column 2', …), so a plain one-name-per-line paste auto-maps
+//     its only column to the name role.
+// Returns { headers, rows, delimiter, raggedRows } — `delimiter` is the one
+// actually used, `raggedRows` counts data rows whose raw cell count differs
+// from the header row (usually a sign the wrong delimiter was picked).
+export function parseCsv(text, { delimiter, hasHeader = true } = {}) {
   // Strip a leading UTF-8 BOM (U+FEFF). Spreadsheet exports (e.g. Excel "CSV
   // UTF-8") prepend one; left in place it becomes part of the first header
   // ("Person" with a hidden BOM), breaking alias auto-detection and field-key
   // matching.
   const raw = String(text ?? '')
   const source = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw
+  const delim = CSV_DELIMITERS.includes(delimiter) ? delimiter : detectDelimiter(source)
   const rows = []
   let row = []
   let field = ''
@@ -56,7 +141,7 @@ export function parseCsv(text) {
 
     if (c === '"') {
       inQuotes = true
-    } else if (c === ',') {
+    } else if (c === delim) {
       endField()
     } else if (c === '\n') {
       endRow()
@@ -71,11 +156,22 @@ export function parseCsv(text) {
 
   const nonEmpty = rows.filter((cells) => cells.some((cell) => cell.trim() !== ''))
   if (nonEmpty.length === 0) {
-    return { headers: [], rows: [] }
+    return { headers: [], rows: [], delimiter: delim, raggedRows: 0 }
   }
 
-  const headers = nonEmpty[0].map((h) => h.trim())
-  const dataRows = nonEmpty.slice(1).map((cells) => {
+  // Headerless input (e.g. a pasted name list): synthesize headers sized to the
+  // widest row. 'Name' matches the single-name aliases, so the first column
+  // auto-maps to the name role in the import dialog.
+  const headers = hasHeader
+    ? nonEmpty[0].map((h) => h.trim())
+    : Array.from(
+        { length: Math.max(...nonEmpty.map((cells) => cells.length)) },
+        (_, j) => (j === 0 ? 'Name' : `Column ${j + 1}`),
+      )
+  const cellRows = hasHeader ? nonEmpty.slice(1) : nonEmpty
+  let raggedRows = 0
+  const dataRows = cellRows.map((cells) => {
+    if (cells.length !== headers.length) raggedRows += 1
     const obj = {}
     headers.forEach((h, j) => {
       obj[h] = (cells[j] ?? '').trim()
@@ -83,7 +179,42 @@ export function parseCsv(text) {
     return obj
   })
 
-  return { headers, rows: dataRows }
+  return { headers, rows: dataRows, delimiter: delim, raggedRows }
+}
+
+// Convert a parsed JSON array of flat objects into the same { headers, rows }
+// tabular shape parseCsv produces, so a JSON participant list flows through the
+// standard mapping dialog. Headers are the union of keys in first-appearance
+// order; values are stringified (nested objects/arrays as JSON).
+export function tabularizeJsonList(parsed) {
+  if (!Array.isArray(parsed)) {
+    throw new Error('JSON participant list must be an array of objects.')
+  }
+  const headers = []
+  const seen = new Set()
+  for (let i = 0; i < parsed.length; i++) {
+    const item = parsed[i]
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`JSON list entry at index ${i} is not an object.`)
+    }
+    for (const key of Object.keys(item)) {
+      if (!seen.has(key)) {
+        seen.add(key)
+        headers.push(key)
+      }
+    }
+  }
+  const toCell = (v) => {
+    if (v == null) return ''
+    if (typeof v === 'object') return JSON.stringify(v)
+    return String(v).trim()
+  }
+  const rows = parsed.map((item) => {
+    const obj = {}
+    for (const h of headers) obj[h] = toCell(item[h])
+    return obj
+  })
+  return { headers, rows }
 }
 
 const normHeader = (h) => h.toLowerCase().replace(/[\s_]+/g, '')

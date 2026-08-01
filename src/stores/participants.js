@@ -46,10 +46,22 @@ export const useParticipantStore = defineStore('participantStore', {
     winners: [],
     index: -1,
     selected: null,
+    // Winner copies committed during the current/most-recent draw batch, in
+    // draw order. Drives the end-of-batch roster on the drawing screen. Not
+    // persisted — it's a per-window presentation concern.
+    lastDrawWinners: [],
+    // True while a multi-winner batch is running. While active, candidates who
+    // already won in this batch are excluded from subsequent picks (matters in
+    // multi-win entries mode, where winners stay in the pool).
+    batchActive: false,
     spinning: false,
     // Set by requestManualStop() to tell an in-progress 'manual' classic spin to
     // begin decelerating. Reset at the start/end of each spin.
     manualStop: false,
+    // Set by abortSpin() to tear down an in-progress classic spin *without*
+    // committing a winner — used when the drawing screen unmounts mid-draw, so
+    // a navigated-away batch can't keep awarding winners in the background.
+    spinAborted: false,
     useMultiDisplayMode: false,
     filters: [],
     // Snapshots of the most recent reset so the operator can undo an
@@ -77,11 +89,26 @@ export const useParticipantStore = defineStore('participantStore', {
         state.filters.every((f) => c.fields?.[f.key] === f.value),
       )
     },
-    // Total number of draw entries across the (filtered) pool, honoring each
+    // Identity keys of everyone who has already won in the current batch.
+    batchWinnerKeys(state) {
+      return new Set(state.lastDrawWinners.map(participantKey))
+    },
+    // The pool a draw may pick from: the filtered candidates, minus anyone who
+    // already won in the current batch. Identical to filteredCandidates when no
+    // batch is running (odds mode removes winners from the pool anyway; this
+    // matters for multi-win mode, where they stay).
+    drawableCandidates(state) {
+      if (!state.batchActive || state.lastDrawWinners.length === 0) {
+        return this.filteredCandidates
+      }
+      const keys = this.batchWinnerKeys
+      return this.filteredCandidates.filter((c) => !keys.has(participantKey(c)))
+    },
+    // Total number of draw entries across the drawable pool, honoring each
     // participant's weight. Equals the candidate count when every weight is 1.
     // A pool with entries but a total of 0 is effectively un-drawable.
     totalEntries() {
-      return this.filteredCandidates.reduce((sum, c) => sum + entryWeight(c), 0)
+      return this.drawableCandidates.reduce((sum, c) => sum + entryWeight(c), 0)
     },
   },
   actions: {
@@ -183,6 +210,8 @@ export const useParticipantStore = defineStore('participantStore', {
       }
       this.winners = []
       this.selected = null
+      // The last draw's roster refers to winners that no longer exist.
+      this.lastDrawWinners = []
       this.persistCandidates()
       this.persistWinners()
     },
@@ -265,6 +294,8 @@ export const useParticipantStore = defineStore('participantStore', {
       this.winners = winners
       this.index = -1
       this.selected = null
+      this.lastDrawWinners = []
+      this.batchActive = false
       this.filters = []
       this.lastResetCandidates = null
       this.lastResetWinners = null
@@ -292,7 +323,7 @@ export const useParticipantStore = defineStore('participantStore', {
       return last
     },
     pointToRandomCandidate() {
-      const pick = this.weightedPick(this.filteredCandidates)
+      const pick = this.weightedPick(this.drawableCandidates)
       if (!pick) { this.index = -1; return }
       this.index = this.candidates.findIndex((c) => c.id === pick.id)
     },
@@ -321,17 +352,49 @@ export const useParticipantStore = defineStore('participantStore', {
       }
 
       this.selected = winner
+      // The roster describes *this batch's* draw. Manual admin awards (which
+      // commit outside a batch) must not accumulate into it, or the projector
+      // would show a "winners" roster before anyone has drawn.
+      if (this.batchActive) this.lastDrawWinners.push(winner)
       this.index = -1
       this.persistWinners()
       this.persistCandidates()
+    },
+    // Bracket a multi-winner draw. beginDrawBatch() resets the roster; while
+    // the batch is active, drawableCandidates excludes this batch's winners so
+    // one trigger never awards the same person twice (relevant in multi-win
+    // mode). Single draws use the same bracket — their roster just has 1 entry.
+    beginDrawBatch() {
+      this.batchActive = true
+      this.lastDrawWinners = []
+    },
+    endDrawBatch() {
+      this.batchActive = false
     },
     // Pick a winner index up front *without* mutating state. Used by visual
     // animations (e.g. the wheel) that need to know who the winner is before
     // the on-screen reveal can land on them. Returns -1 if the pool is empty.
     pickWinnerIndex() {
-      const pick = this.weightedPick(this.filteredCandidates)
+      const pick = this.weightedPick(this.drawableCandidates)
       if (!pick) return -1
       return this.candidates.findIndex((c) => c.id === pick.id)
+    },
+    // Pick up to `n` distinct winners up front *without* mutating state —
+    // weighted sampling without replacement over the drawable pool, also
+    // skipping same-identity duplicates. Used by the simultaneous multi-winner
+    // reveal, which needs every winner known before its panes start spinning.
+    // Returns fewer than `n` ids when the pool runs short.
+    pickWinnerIds(n) {
+      const ids = []
+      let pool = this.drawableCandidates
+      while (ids.length < n) {
+        const pick = this.weightedPick(pool)
+        if (!pick) break
+        ids.push(pick.id)
+        const key = participantKey(pick)
+        pool = pool.filter((c) => c.id !== pick.id && participantKey(c) !== key)
+      }
+      return ids
     },
     // Enter "spinning" without running the timer-driven slot-machine loop.
     // The caller (a visual animation component) is responsible for ending the
@@ -343,6 +406,12 @@ export const useParticipantStore = defineStore('participantStore', {
       this.selected = null
       this.clearResetUndo()
       return true
+    },
+    // Leave "spinning" without committing anything. The simultaneous reveal
+    // commits its pre-picked winners via commitWinnerById() and then ends the
+    // visual spin explicitly (commitSelection doesn't touch `spinning`).
+    endVisualSpin() {
+      this.spinning = false
     },
     // Commit a pre-chosen index (no random pick). Used by the wheel and other
     // visual animations that determined the winner in advance via
@@ -363,6 +432,14 @@ export const useParticipantStore = defineStore('participantStore', {
     requestManualStop() {
       this.manualStop = true
     },
+    // Abandon an in-progress classic spin without picking a winner. The tick
+    // loop notices on its next tick, clears `spinning` and fires `onDone` so
+    // any awaiting batch can unwind. Returns false when nothing was spinning.
+    abortSpin() {
+      if (!this.spinning) return false
+      this.spinAborted = true
+      return true
+    },
     // Shared slot-machine animation loop. Cycles the pointer at the base delay,
     // then decelerates to a stop; once stopped, `resolveWinner()` fixes the final
     // `this.index` (a no-op for a random draw — the last tick already set it) and
@@ -375,11 +452,12 @@ export const useParticipantStore = defineStore('participantStore', {
     //     collapse to a single fast tick (the tail is the practical minimum).
     //   Infinity ('manual') — stay fast until requestManualStop() is called, then
     //     decelerate.
-    runSpinAnimation(style, resolveWinner, { durationMs = 4500 } = {}) {
+    runSpinAnimation(style, resolveWinner, { durationMs = 4500, onDone } = {}) {
       const timing = ANIMATION_TIMING[style] ?? ANIMATION_TIMING.classic
       this.spinning = true
       this.selected = null
       this.manualStop = false
+      this.spinAborted = false
       // A committed draw renders any prior reset-undo meaningless.
       this.clearResetUndo()
 
@@ -391,6 +469,16 @@ export const useParticipantStore = defineStore('participantStore', {
       let decelerating = false
 
       const tick = () => {
+        // Abandoned (the drawing screen unmounted mid-spin): stop the loop and
+        // leave the pool untouched — no winner is committed.
+        if (this.spinAborted) {
+          this.spinAborted = false
+          this.spinning = false
+          this.manualStop = false
+          this.index = -1
+          onDone?.()
+          return
+        }
         this.pointToRandomCandidate()
         i += 1
         if (!decelerating && (manual ? this.manualStop : i >= fastTicks)) {
@@ -406,6 +494,8 @@ export const useParticipantStore = defineStore('participantStore', {
           this.manualStop = false
           resolveWinner()
           this.commitSelection()
+          // After the commit, so batch orchestration reads a settled state.
+          onDone?.()
         }
       }
 
@@ -416,7 +506,7 @@ export const useParticipantStore = defineStore('participantStore', {
     // end. A manual pick is an explicit operator override, so it intentionally
     // ignores the active draw filter (unlike the random draw, which is gated on
     // the filtered pool via totalEntries).
-    selectSpecificCandidate(id, style = 'classic', { durationMs } = {}) {
+    selectSpecificCandidate(id, style = 'classic', { durationMs, onDone } = {}) {
       if (this.spinning) return false
       if (this.candidates.findIndex((c) => c.id === id) < 0) return false
       this.runSpinAnimation(
@@ -424,22 +514,28 @@ export const useParticipantStore = defineStore('participantStore', {
         () => {
           this.index = this.candidates.findIndex((c) => c.id === id)
         },
-        { durationMs },
+        { durationMs, onDone },
       )
       return true
     },
-    // Add a participant directly to winners without any animation (admin-only path).
-    manuallySelectWinner(id) {
+    // Commit a candidate to winners by id, with the same entriesMode/cap
+    // semantics as commitSelection. Used by the simultaneous reveal (winners
+    // are pre-picked by id, and each commit reshuffles candidate indices).
+    commitWinnerById(id) {
       const idx = this.candidates.findIndex((c) => c.id === id)
       if (idx === -1) return false
       this.index = idx
       this.commitSelection()
       return true
     },
-    selectRandomCandidate(style = 'classic', { durationMs } = {}) {
+    // Add a participant directly to winners without any animation (admin-only path).
+    manuallySelectWinner(id) {
+      return this.commitWinnerById(id)
+    },
+    selectRandomCandidate(style = 'classic', { durationMs, onDone } = {}) {
       if (this.spinning) return false
       if (this.totalEntries === 0) return false
-      this.runSpinAnimation(style, () => {}, { durationMs })
+      this.runSpinAnimation(style, () => {}, { durationMs, onDone })
       return true
     },
   },

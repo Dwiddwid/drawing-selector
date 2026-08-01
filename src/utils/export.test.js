@@ -77,6 +77,36 @@ describe('deserializeState', () => {
       fields: { 'First Name': 'Ada', 'Last Name': 'Lovelace', Grade: '3' },
     })
   })
+
+  it('throws when the top level is not an object', () => {
+    expect(() => deserializeState('null')).toThrow('JSON must have "candidates" and "winners" arrays.')
+    expect(() => deserializeState('42')).toThrow('JSON must have "candidates" and "winners" arrays.')
+  })
+
+  it('rejects non-object list entries with the list name and index', () => {
+    expect(() =>
+      deserializeState(JSON.stringify({ candidates: ['Ada'], winners: [] })),
+    ).toThrow('Invalid candidates entry at index 0 — expected an object.')
+    expect(() =>
+      deserializeState(JSON.stringify({ candidates: [], winners: [person('A', 'B'), null] })),
+    ).toThrow('Invalid winners entry at index 1 — expected an object.')
+    expect(() =>
+      deserializeState(JSON.stringify({ candidates: [[]], winners: [] })),
+    ).toThrow('Invalid candidates entry at index 0 — expected an object.')
+  })
+
+  it('rejects entries that are neither current nor legacy participant shapes', () => {
+    expect(() =>
+      deserializeState(JSON.stringify({ candidates: [{ id: 'x', fields: 'oops' }], winners: [] })),
+    ).toThrow('Invalid candidates entry at index 0 — missing a "fields" map.')
+    expect(() =>
+      deserializeState(JSON.stringify({ candidates: [{ id: 'x' }], winners: [] })),
+    ).toThrow('missing a "fields" map')
+    // Legacy records with any of the old keys still pass (they're migratable).
+    expect(() =>
+      deserializeState(JSON.stringify({ candidates: [{ firstName: 'Ada' }], winners: [] })),
+    ).not.toThrow()
+  })
 })
 
 describe('downloadWinnersCsv', () => {

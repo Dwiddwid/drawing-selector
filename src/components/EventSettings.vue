@@ -1,17 +1,20 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useParticipantStore } from '../stores/participants.js'
-import { useSettingsStore } from '../stores/settings.js'
+import { useSettingsStore, MAX_DRAW_COUNT } from '../stores/settings.js'
 import { collectFieldKeys } from '../utils/winnerDisplay.js'
 import { THEME_PRESETS } from '../utils/themePresets.js'
 import { themeFromImageFile } from '../utils/themeFromImage.js'
+import { FONT_OPTIONS, fontStack } from '../utils/fonts.js'
+import { playWinnerSound, DEFAULT_CONFETTI_COLORS } from '../utils/celebration.js'
+import { defaultSettings } from '../stores/settings.js'
 
 const emit = defineEmits(['notify'])
 
 const store = useParticipantStore()
 const settings = useSettingsStore()
 
-const fontOptions = ['Poppins', 'Inter', 'Arial', 'Georgia', 'Comic Sans MS', 'Courier New']
+const fontOptions = FONT_OPTIONS.map((f) => f.name)
 const backgroundStyles = [
   { title: 'Animated waves', value: 'waves' },
   { title: 'Solid color', value: 'solid' },
@@ -29,6 +32,60 @@ const drawTimingModes = [
   { title: 'Random duration (range)', value: 'random' },
   { title: 'Manual stop (from admin)', value: 'manual' },
 ]
+const multiWinnerReveals = [
+  { title: 'All at once (when the style allows)', value: 'simultaneous' },
+  { title: 'One at a time', value: 'sequential' },
+]
+const confettiColorModes = [
+  { title: 'Classic mix', value: 'classic' },
+  { title: 'Match theme', value: 'theme' },
+  { title: 'Custom colors', value: 'custom' },
+]
+const celebrationIntensities = [
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
+]
+const soundStyles = [
+  { title: 'Chime (arpeggio)', value: 'chime' },
+  { title: 'Fanfare', value: 'fanfare' },
+  { title: 'Ta-da', value: 'tada' },
+]
+// Projector wording fields; empty string hides that line on the screen.
+const screenTextFields = [
+  { key: 'idleTitle', label: 'Idle headline' },
+  { key: 'spinTitle', label: 'Spinning headline' },
+  { key: 'rosterTitle', label: 'Multi-winner roster heading' },
+  { key: 'goButton', label: 'Draw button' },
+]
+
+function resetScreenText() {
+  settings.updateScreenText(defaultSettings().screenText)
+}
+
+function setConfettiColor(idx, value) {
+  const confettiCustomColors = [...settings.celebration.confettiCustomColors]
+  confettiCustomColors[idx] = value
+  settings.updateCelebration({ confettiCustomColors })
+}
+
+function addConfettiColor() {
+  const colors = settings.celebration.confettiCustomColors
+  if (colors.length >= 8) return
+  settings.updateCelebration({
+    confettiCustomColors: [...colors, DEFAULT_CONFETTI_COLORS[colors.length % DEFAULT_CONFETTI_COLORS.length]],
+  })
+}
+
+function removeConfettiColor(idx) {
+  const colors = settings.celebration.confettiCustomColors
+  if (colors.length <= 2) return
+  settings.updateCelebration({ confettiCustomColors: colors.filter((_, i) => i !== idx) })
+}
+
+function previewSound() {
+  playWinnerSound({ style: settings.celebration.soundStyle })
+}
 
 // Theme color pickers. Optional entries are overrides that fall back to
 // another palette color when unset (null) — exactly how the drawing screen
@@ -170,6 +227,19 @@ function resetAll() {
       <v-expansion-panel-text>
         <div class="pro-gate">
           <div :class="{ 'pro-locked': !settings.isPro }">
+            <v-switch
+              :model-value="settings.theme.mode === 'dark'"
+              @update:model-value="settings.updateTheme({ mode: $event ? 'dark' : 'light' })"
+              color="primary"
+              hide-details
+              label="Dark mode"
+              class="mb-2"
+            />
+            <p class="text-body-2 text-medium-emphasis mb-3">
+              Dark mode darkens the interface and derives light text automatically — your
+              palette colors and any explicit overrides still apply.
+            </p>
+
             <div class="text-caption mb-1">Preset themes</div>
             <div class="d-flex flex-wrap ga-2 mb-4">
               <v-btn
@@ -228,6 +298,23 @@ function resetAll() {
               class="mb-2"
             />
 
+            <div class="text-subtitle-2 mb-2">Screen text</div>
+            <p class="text-body-2 text-medium-emphasis mb-2">
+              Wording shown on the drawing screen — handy for other languages or draws that
+              aren't about people. Clear a field to hide that line.
+            </p>
+            <v-text-field
+              v-for="f in screenTextFields"
+              :key="f.key"
+              :model-value="settings.screenText[f.key]"
+              @update:model-value="settings.updateScreenText({ [f.key]: $event })"
+              :label="f.label"
+              density="compact"
+            />
+            <v-btn size="small" variant="text" class="mb-4" @click="resetScreenText">
+              Reset text
+            </v-btn>
+
             <div class="d-flex flex-wrap ga-4 mb-4">
               <div v-for="f in colorFields" :key="f.key">
                 <div class="text-caption mb-1 d-flex align-center">
@@ -263,7 +350,11 @@ function resetAll() {
               :items="fontOptions"
               label="Font"
               density="compact"
-            />
+            >
+              <template #item="{ props: itemProps, item }">
+                <v-list-item v-bind="itemProps" :style="{ fontFamily: fontStack(item.raw) }" />
+              </template>
+            </v-select>
 
             <v-radio-group
               :model-value="settings.theme.backgroundStyle"
@@ -345,13 +436,28 @@ function resetAll() {
               density="compact"
               @change="readAsDataUrl($event.target, 'logo')"
             />
-            <v-btn
-              v-if="settings.theme.logo"
-              size="small"
-              variant="text"
-              @click="settings.updateTheme({ logo: null })"
-              >Remove logo</v-btn
-            >
+            <template v-if="settings.theme.logo">
+              <v-slider
+                :model-value="settings.theme.logoHeightVh"
+                @update:model-value="settings.updateTheme({ logoHeightVh: Math.round($event) })"
+                label="Logo size"
+                :min="8"
+                :max="45"
+                :step="1"
+                thumb-label
+                hide-details
+                class="mb-1"
+              >
+                <template #append>
+                  <span class="text-body-2" style="min-width: 3.5rem">
+                    {{ settings.theme.logoHeightVh }}vh
+                  </span>
+                </template>
+              </v-slider>
+              <v-btn size="small" variant="text" @click="settings.updateTheme({ logo: null })">
+                Remove logo
+              </v-btn>
+            </template>
           </div>
           <div v-if="!settings.isPro" class="pro-overlay">
             <font-awesome-icon icon="fas fa-lock" />
@@ -597,6 +703,40 @@ function resetAll() {
               “Stop” on this admin window to build and release the suspense.
             </p>
 
+            <v-divider class="my-3" />
+            <div class="text-subtitle-2 mb-2">Winners per draw</div>
+            <v-slider
+              :model-value="settings.drawCount"
+              @update:model-value="settings.setDrawCount(Math.round($event))"
+              :min="1"
+              :max="MAX_DRAW_COUNT"
+              :step="1"
+              thumb-label
+              hide-details
+              class="mb-1"
+            >
+              <template #append>
+                <span class="text-body-2" style="min-width: 3.5rem">
+                  {{ settings.drawCount }}
+                </span>
+              </template>
+            </v-slider>
+            <template v-if="settings.drawCount > 1">
+              <v-select
+                :model-value="settings.multiWinnerReveal"
+                @update:model-value="settings.setMultiWinnerReveal($event)"
+                :items="multiWinnerReveals"
+                label="Multi-winner reveal"
+                density="compact"
+                class="mt-2"
+              />
+              <p class="text-body-2 text-medium-emphasis">
+                “All at once” spins one panel per winner side by side (classic and
+                standard wheel styles). The giant wheel and reel always reveal one
+                winner at a time, ending with a roster of everyone drawn.
+              </p>
+            </template>
+
             <template v-if="isWheelStyle">
               <v-divider class="my-3" />
               <div class="text-subtitle-2 mb-2">Spinner</div>
@@ -734,6 +874,9 @@ function resetAll() {
               </template>
             </template>
 
+            <v-divider class="my-3" />
+            <div class="text-subtitle-2 mb-2">Celebration</div>
+
             <v-switch
               :model-value="settings.celebration.confetti"
               @update:model-value="settings.updateCelebration({ confetti: $event })"
@@ -741,6 +884,70 @@ function resetAll() {
               hide-details
               label="Confetti on winner reveal"
             />
+            <template v-if="settings.celebration.confetti">
+              <v-select
+                :model-value="settings.celebration.confettiColorMode"
+                @update:model-value="settings.updateCelebration({ confettiColorMode: $event })"
+                :items="confettiColorModes"
+                label="Confetti colors"
+                density="compact"
+                class="mt-2"
+              />
+              <div
+                v-if="settings.celebration.confettiColorMode === 'custom'"
+                class="d-flex flex-wrap align-center ga-2 mb-3"
+              >
+                <span
+                  v-for="(c, i) in settings.celebration.confettiCustomColors"
+                  :key="i"
+                  class="confetti-color"
+                >
+                  <input
+                    type="color"
+                    :value="c"
+                    :aria-label="`Confetti color ${i + 1}`"
+                    @input="setConfettiColor(i, $event.target.value)"
+                  />
+                  <v-btn
+                    v-if="settings.celebration.confettiCustomColors.length > 2"
+                    size="x-small"
+                    variant="text"
+                    icon
+                    :aria-label="`Remove confetti color ${i + 1}`"
+                    @click="removeConfettiColor(i)"
+                  >
+                    <font-awesome-icon icon="fas fa-xmark" />
+                  </v-btn>
+                </span>
+                <v-btn
+                  v-if="settings.celebration.confettiCustomColors.length < 8"
+                  size="small"
+                  variant="tonal"
+                  @click="addConfettiColor"
+                >
+                  Add color
+                </v-btn>
+              </div>
+              <div class="text-caption mb-1">Confetti amount</div>
+              <v-btn-toggle
+                :model-value="settings.celebration.intensity"
+                @update:model-value="$event && settings.updateCelebration({ intensity: $event })"
+                mandatory
+                density="compact"
+                divided
+                class="mb-3"
+              >
+                <v-btn
+                  v-for="opt in celebrationIntensities"
+                  :key="opt.value"
+                  :value="opt.value"
+                  size="small"
+                >
+                  {{ opt.label }}
+                </v-btn>
+              </v-btn-toggle>
+            </template>
+
             <v-switch
               :model-value="settings.celebration.sound"
               @update:model-value="settings.updateCelebration({ sound: $event })"
@@ -748,6 +955,18 @@ function resetAll() {
               hide-details
               label="Celebration sound on winner reveal"
             />
+            <div v-if="settings.celebration.sound" class="d-flex align-center ga-2 mt-2">
+              <v-select
+                :model-value="settings.celebration.soundStyle"
+                @update:model-value="settings.updateCelebration({ soundStyle: $event })"
+                :items="soundStyles"
+                label="Sound"
+                density="compact"
+                hide-details
+                class="sound-select"
+              />
+              <v-btn size="small" variant="tonal" @click="previewSound">Preview</v-btn>
+            </div>
             <p class="text-body-2 text-medium-emphasis mt-2">
               Some browsers block sound until you've interacted with the drawing tab.
             </p>
@@ -809,5 +1028,21 @@ function resetAll() {
   border-radius: 4px;
   background: none;
   cursor: pointer;
+}
+.confetti-color {
+  display: inline-flex;
+  align-items: center;
+}
+.confetti-color input[type='color'] {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+.sound-select {
+  max-width: 16rem;
 }
 </style>

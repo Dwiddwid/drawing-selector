@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseCsv,
+  detectDelimiter,
+  tabularizeJsonList,
   suggestMapping,
   normalizeWithMapping,
   participantKey,
@@ -51,8 +53,8 @@ describe('parseCsv', () => {
   })
 
   it('returns empty result for empty input', () => {
-    expect(parseCsv('')).toEqual({ headers: [], rows: [] })
-    expect(parseCsv('   \n  ')).toEqual({ headers: [], rows: [] })
+    expect(parseCsv('')).toEqual({ headers: [], rows: [], delimiter: ',', raggedRows: 0 })
+    expect(parseCsv('   \n  ')).toEqual({ headers: [], rows: [], delimiter: ',', raggedRows: 0 })
   })
 })
 
@@ -292,5 +294,136 @@ describe('migrateParticipant', () => {
     const out = migrateParticipants([{ id: '1', firstName: 'Ada', lastName: 'L', extras: {} }])
     expect(out[0].fields).toEqual({ 'First Name': 'Ada', 'Last Name': 'L' })
     expect(migrateParticipants(null)).toEqual([])
+  })
+})
+
+describe('detectDelimiter', () => {
+  it('detects comma, semicolon and tab', () => {
+    expect(detectDelimiter('a,b,c\n1,2,3')).toBe(',')
+    expect(detectDelimiter('a;b;c\n1;2;3')).toBe(';')
+    expect(detectDelimiter('a\tb\tc\n1\t2\t3')).toBe('\t')
+  })
+
+  it('ignores delimiters inside quoted fields', () => {
+    // Semicolons only appear inside quotes; the real separator is the tab.
+    expect(detectDelimiter('"a;a"\t"b;b"\n"1;1"\t"2;2"')).toBe('\t')
+  })
+
+  it('defaults to comma for a single column and on ties', () => {
+    expect(detectDelimiter('Name\nAda\nAlan')).toBe(',')
+    expect(detectDelimiter('')).toBe(',')
+    expect(detectDelimiter('a,b;c\n1,2;3')).toBe(',')
+  })
+
+  // Frequency-only detection silently dropped data here: these one-column
+  // files contain more semicolons/tabs than commas, but splitting on them
+  // would discard half of every value.
+  it('keeps a one-column list intact when its values contain semicolons', () => {
+    expect(detectDelimiter('Name\nLovelace; Ada\nTuring; Alan\n')).toBe(',')
+  })
+
+  it('keeps a comma file on comma when a value contains many semicolons', () => {
+    expect(detectDelimiter('Name,Prefs\nAda,vegan;gluten;nuts\nAlan,veg;dairy;soy\n')).toBe(',')
+  })
+
+  it('keeps a comma file on comma when values contain stray tabs', () => {
+    expect(detectDelimiter('Name,Note\nAda,left\tright\nAlan,up\tdown\n')).toBe(',')
+  })
+
+  it('still detects a semicolon export whose body has one ragged row', () => {
+    expect(detectDelimiter('First;Last\nAda;Lovelace\nAlan\n')).toBe(';')
+  })
+})
+
+describe('parseCsv delimiter & header options', () => {
+  it('auto-detects a semicolon-delimited file', () => {
+    const { headers, rows, delimiter } = parseCsv('First;Last\nAda;Lovelace')
+    expect(delimiter).toBe(';')
+    expect(headers).toEqual(['First', 'Last'])
+    expect(rows).toEqual([{ First: 'Ada', Last: 'Lovelace' }])
+  })
+
+  it('auto-detects a tab-delimited (spreadsheet paste) block', () => {
+    const { headers, rows, delimiter } = parseCsv('First\tLast\nAda\tLovelace')
+    expect(delimiter).toBe('\t')
+    expect(headers).toEqual(['First', 'Last'])
+    expect(rows).toEqual([{ First: 'Ada', Last: 'Lovelace' }])
+  })
+
+  it('honors an explicit delimiter override', () => {
+    const { headers, rows } = parseCsv('a,a;b\n1,1;2', { delimiter: ';' })
+    expect(headers).toEqual(['a,a', 'b'])
+    expect(rows).toEqual([{ 'a,a': '1,1', b: '2' }])
+  })
+
+  it('quoted fields may contain the active delimiter', () => {
+    const { rows } = parseCsv('Name;Note\n"Lovelace; Ada";ok')
+    expect(rows[0].Name).toBe('Lovelace; Ada')
+  })
+
+  it('hasHeader:false synthesizes Name/Column N headers and keeps row 1 as data', () => {
+    const { headers, rows } = parseCsv('Ada\nAlan\nGrace', { hasHeader: false })
+    expect(headers).toEqual(['Name'])
+    expect(rows.map((r) => r.Name)).toEqual(['Ada', 'Alan', 'Grace'])
+  })
+
+  it('hasHeader:false sizes headers to the widest row', () => {
+    const { headers, rows } = parseCsv('Ada\tLovelace\nAlan', { hasHeader: false })
+    expect(headers).toEqual(['Name', 'Column 2'])
+    expect(rows[0]).toEqual({ Name: 'Ada', 'Column 2': 'Lovelace' })
+    expect(rows[1]).toEqual({ Name: 'Alan', 'Column 2': '' })
+  })
+
+  it('counts ragged rows (cell count differs from the header row)', () => {
+    const clean = parseCsv('a,b\n1,2\n3,4')
+    expect(clean.raggedRows).toBe(0)
+    const ragged = parseCsv('a,b\n1\n1,2,3\n4,5')
+    expect(ragged.raggedRows).toBe(2)
+  })
+
+  it('does not split a one-column list whose values contain semicolons', () => {
+    const { headers, rows } = parseCsv('Name\nLovelace; Ada\nTuring; Alan\n')
+    expect(headers).toEqual(['Name'])
+    expect(rows.map((r) => r.Name)).toEqual(['Lovelace; Ada', 'Turing; Alan'])
+  })
+
+  it('a wrongly-delimited file shows up as one column, not a crash', () => {
+    // Semicolon data parsed with an explicit comma: one mangled header.
+    const { headers, raggedRows } = parseCsv('First;Last\nAda;Lovelace', { delimiter: ',' })
+    expect(headers).toEqual(['First;Last'])
+    expect(raggedRows).toBe(0)
+  })
+})
+
+describe('tabularizeJsonList', () => {
+  it('builds headers from the union of keys in first-appearance order', () => {
+    const { headers, rows } = tabularizeJsonList([
+      { Name: 'Ada', Team: 'Analytical' },
+      { Name: 'Alan', Grade: '3' },
+    ])
+    expect(headers).toEqual(['Name', 'Team', 'Grade'])
+    expect(rows).toEqual([
+      { Name: 'Ada', Team: 'Analytical', Grade: '' },
+      { Name: 'Alan', Team: '', Grade: '3' },
+    ])
+  })
+
+  it('stringifies numbers/booleans and JSON-encodes nested values', () => {
+    const { rows } = tabularizeJsonList([{ Name: 'Ada', Entries: 3, Vip: true, Meta: { a: 1 } }])
+    expect(rows[0].Entries).toBe('3')
+    expect(rows[0].Vip).toBe('true')
+    expect(rows[0].Meta).toBe('{"a":1}')
+  })
+
+  it('treats null/undefined values as empty strings', () => {
+    const { rows } = tabularizeJsonList([{ Name: 'Ada', Note: null }])
+    expect(rows[0].Note).toBe('')
+  })
+
+  it('throws descriptive errors for non-arrays and non-object entries', () => {
+    expect(() => tabularizeJsonList({})).toThrow(/must be an array/)
+    expect(() => tabularizeJsonList([{ Name: 'Ada' }, 'nope'])).toThrow(/index 1/)
+    expect(() => tabularizeJsonList([null])).toThrow(/index 0/)
+    expect(() => tabularizeJsonList([['Ada']])).toThrow(/index 0/)
   })
 })
